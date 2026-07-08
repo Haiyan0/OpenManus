@@ -170,26 +170,33 @@ function chat() {
       const prompt = this.input.trim();
       if (!prompt || this.running) return;
 
-      this.connected = true;
       this.running = true;
       this.messages = [{ type: 'user', content: prompt }];
       this.input = '';
 
-      const wsUrl = `ws://${location.host}/ws`;
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${location.host}/ws`;
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
+        this.connected = true;
         this.ws.send(prompt);
       };
 
       this.ws.onmessage = (e) => {
-        const event = JSON.parse(e.data);
+        let event;
+        try {
+          event = JSON.parse(e.data);
+        } catch (err) {
+          this.messages.push({ type: 'error', message: '收到无效的服务器消息' });
+          return;
+        }
 
         if (event.type === 'tool_end') {
           // 找到匹配的 tool_start 并内联更新
           for (let i = this.messages.length - 1; i >= 0; i--) {
             const m = this.messages[i];
-            if (m.type === 'tool_start' && m.tool === event.tool && !m.state) {
+            if (m.type === 'tool_start' && m.tool === event.tool && m.state !== 'done' && m.state !== 'error') {
               this.messages[i] = {
                 ...m,
                 result: event.result || null,
@@ -208,10 +215,12 @@ function chat() {
       };
 
       this.ws.onclose = () => {
+        this.connected = false;
         this.running = false;
       };
 
       this.ws.onerror = () => {
+        this.connected = false;
         this.running = false;
         this.messages.push({ type: 'error', message: 'WebSocket 连接失败，请检查服务器是否运行' });
       };
