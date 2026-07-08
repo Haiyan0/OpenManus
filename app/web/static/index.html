@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenManus Chat</title>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  /* 滚动条美化 */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+  /* 代码块样式 */
+  pre { background: #1f2937; color: #e5e7eb; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 13px; }
+  pre code { background: none; padding: 0; }
+  code { background: #f3f4f6; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  /* 工具卡片过渡动画 */
+  .tool-card { transition: border-color 0.3s ease; }
+  /* spinner 动画 */
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .animate-spin { animation: spin 0.8s linear infinite; }
+</style>
+</head>
+<body class="bg-gray-50 h-screen flex flex-col">
+
+<!-- ═══ 顶栏 ═══ -->
+<header class="bg-white border-b border-gray-200 shadow-sm px-6 py-3 flex items-center justify-between shrink-0">
+  <div class="flex items-center gap-2">
+    <span class="text-xl">🤖</span>
+    <h1 class="text-lg font-semibold text-gray-800">OpenManus Chat</h1>
+  </div>
+  <div class="flex items-center gap-2">
+    <span x-show="running" class="flex items-center gap-1 text-sm text-yellow-600">
+      <span class="animate-spin inline-block w-3 h-3 border-2 border-yellow-600 border-t-transparent rounded-full"></span>
+      运行中
+    </span>
+    <span x-show="!running && connected" class="text-sm text-green-600">⚡ 就绪</span>
+    <span x-show="!connected" class="text-sm text-gray-400">未连接</span>
+  </div>
+</header>
+
+<!-- ═══ 消息区 ═══ -->
+<main
+  class="flex-1 overflow-y-auto px-4 py-6 space-y-4"
+  x-data="chat()"
+  x-ref="scrollContainer"
+  id="app"
+>
+  <!-- 空状态 -->
+  <div x-show="messages.length === 0" class="flex flex-col items-center justify-center h-full text-gray-400">
+    <span class="text-5xl mb-4">🤖</span>
+    <p class="text-lg">OpenManus Chat 已就绪</p>
+    <p class="text-sm mt-1">在下方输入任务，开始与 AI Agent 对话</p>
+  </div>
+
+  <!-- 消息列表 -->
+  <template x-for="(msg, idx) in messages" :key="idx">
+    <div>
+
+      <!-- 用户消息 -->
+      <div x-show="msg.type === 'user'" class="flex justify-end mb-4">
+        <div class="bg-blue-500 text-white rounded-2xl rounded-br-md px-4 py-2.5 max-w-[80%] shadow-sm">
+          <p class="whitespace-pre-wrap text-sm" x-text="msg.content"></p>
+        </div>
+      </div>
+
+      <!-- 步骤指示器 -->
+      <div x-show="msg.type === 'step_start'" class="text-center mb-3">
+        <span class="text-xs text-gray-400 bg-gray-100 rounded-full px-3 py-1"
+          x-text="'Step ' + msg.step + '/' + msg.max_steps"></span>
+      </div>
+
+      <!-- 思考气泡 -->
+      <div x-show="msg.type === 'thinking' && msg.content" class="mb-3">
+        <div class="bg-gray-100 border border-gray-200 rounded-xl px-4 py-2.5 max-w-[85%]">
+          <button
+            class="flex items-center gap-1.5 text-xs text-gray-500 font-medium mb-1 cursor-pointer w-full text-left"
+            @click="msg._expanded = !msg._expanded"
+          >
+            <span>🤔 思考过程</span>
+            <svg class="w-3 h-3 transition-transform" :class="msg._expanded ? 'rotate-180' : ''"
+              viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd"/>
+            </svg>
+          </button>
+          <div x-show="msg._expanded" class="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed"
+            x-html="renderMarkdown(msg.content)"></div>
+        </div>
+      </div>
+
+      <!-- 工具卡片 -->
+      <div x-show="msg.type === 'tool_start' || msg.type === 'tool_end'"
+        class="mb-3"
+        :class="{
+          'border-l-4 border-yellow-400': msg.state === 'running' || msg.type === 'tool_start',
+          'border-l-4 border-green-400': msg.state === 'done',
+          'border-l-4 border-red-400': msg.state === 'error'
+        }">
+        <div class="bg-white rounded-r-lg border border-l-0 border-gray-200 px-4 py-2.5 shadow-sm max-w-[85%]">
+          <div class="flex items-center gap-2">
+            <span class="text-sm">🔧</span>
+            <span class="text-sm font-medium text-gray-700" x-text="msg.tool"></span>
+            <span x-show="msg.state === 'running' || msg.type === 'tool_start'" class="animate-spin inline-block w-3 h-3 border-2 border-yellow-500 border-t-transparent rounded-full"></span>
+            <span x-show="msg.state === 'done'" class="text-green-500 text-xs">✅</span>
+            <span x-show="msg.state === 'error'" class="text-red-500 text-xs">❌</span>
+          </div>
+          <div x-show="msg.args" class="mt-1.5 text-xs text-gray-500 font-mono bg-gray-50 rounded px-2 py-1 overflow-x-auto"
+            x-text="msg.args"></div>
+          <div x-show="msg.result" class="mt-1.5 text-sm text-gray-700 whitespace-pre-wrap max-h-40 overflow-y-auto"
+            x-text="msg.result"></div>
+          <div x-show="msg.error" class="mt-1.5 text-sm text-red-600" x-text="msg.error"></div>
+        </div>
+      </div>
+
+      <!-- Agent 回复 -->
+      <div x-show="msg.type === 'assistant'" class="mb-4">
+        <div class="bg-white border border-gray-200 rounded-2xl rounded-bl-md px-4 py-3 max-w-[85%] shadow-sm">
+          <div class="text-sm text-gray-800 leading-relaxed" x-html="renderMarkdown(msg.content)"></div>
+        </div>
+      </div>
+
+      <!-- 错误消息 -->
+      <div x-show="msg.type === 'error'" class="mb-3">
+        <div class="bg-red-50 border border-red-200 rounded-xl px-4 py-2.5 max-w-[85%]">
+          <span class="text-sm text-red-700" x-text="'⚠️ ' + msg.message"></span>
+        </div>
+      </div>
+
+      <!-- 完成标记 -->
+      <div x-show="msg.type === 'done'" class="text-center my-3">
+        <span class="text-xs text-gray-400">— 任务结束 —</span>
+      </div>
+
+    </div>
+  </template>
+</main>
+
+<!-- ═══ 输入区 ═══ -->
+<footer class="bg-white border-t border-gray-200 px-4 py-3 shrink-0">
+  <div class="max-w-3xl mx-auto flex gap-2">
+    <input
+      type="text"
+      x-model="input"
+      @keydown.enter="send()"
+      :disabled="running"
+      placeholder="输入你的任务，按 Enter 发送..."
+      class="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+    >
+    <button
+      @click="send()"
+      :disabled="running || !input.trim()"
+      class="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white rounded-xl px-5 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed shrink-0"
+    >发送 ▶</button>
+  </div>
+</footer>
+
+<!-- ═══ Alpine.js 组件 ═══ -->
+<script>
+function chat() {
+  return {
+    messages: [],
+    input: '',
+    connected: false,
+    running: false,
+    ws: null,
+
+    send() {
+      const prompt = this.input.trim();
+      if (!prompt || this.running) return;
+
+      this.connected = true;
+      this.running = true;
+      this.messages = [{ type: 'user', content: prompt }];
+      this.input = '';
+
+      const wsUrl = `ws://${location.host}/ws`;
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.onopen = () => {
+        this.ws.send(prompt);
+      };
+
+      this.ws.onmessage = (e) => {
+        const event = JSON.parse(e.data);
+
+        if (event.type === 'tool_end') {
+          // 找到匹配的 tool_start 并内联更新
+          for (let i = this.messages.length - 1; i >= 0; i--) {
+            const m = this.messages[i];
+            if (m.type === 'tool_start' && m.tool === event.tool && !m.state) {
+              this.messages[i] = {
+                ...m,
+                result: event.result || null,
+                error: event.error || null,
+                ok: event.ok,
+                state: event.ok ? 'done' : 'error',
+              };
+              this.scrollBottom();
+              return;
+            }
+          }
+        }
+
+        this.messages.push(event);
+        this.scrollBottom();
+      };
+
+      this.ws.onclose = () => {
+        this.running = false;
+      };
+
+      this.ws.onerror = () => {
+        this.running = false;
+        this.messages.push({ type: 'error', message: 'WebSocket 连接失败，请检查服务器是否运行' });
+      };
+    },
+
+    scrollBottom() {
+      this.$nextTick(() => {
+        const el = this.$refs.scrollContainer;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    renderMarkdown(text) {
+      if (!text) return '';
+      try {
+        return marked.parse(text);
+      } catch (e) {
+        return text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+    }
+  };
+}
+</script>
+
+</body>
+</html>
