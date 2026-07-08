@@ -77,23 +77,13 @@ class ObservableManus(Manus):
                 "args": command.function.arguments,
             },
         )
-        try:
-            result = await super().execute_tool(command)
-            await self._emit(
-                "tool_end",
-                {"tool": command.function.name, "result": str(result), "ok": True},
-            )
-            return result
-        except Exception as exc:
-            await self._emit(
-                "tool_end",
-                {
-                    "tool": command.function.name,
-                    "error": str(exc),
-                    "ok": False,
-                },
-            )
-            raise
+        result = await super().execute_tool(command)
+        ok = not str(result).startswith("Error:")
+        await self._emit(
+            "tool_end",
+            {"tool": command.function.name, "result": str(result), "ok": ok},
+        )
+        return result
 
     async def run(self, request: Optional[str] = None) -> str:
         """运行 agent，推送 done 事件。异常时推送 error。"""
