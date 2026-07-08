@@ -38,8 +38,16 @@ if daytona_config.target:
 else:
     logger.warning("No Daytona target found in environment variables")
 
-daytona = Daytona(daytona_config)
-logger.info("Daytona client initialized")
+_daytona_instance: Daytona = None
+
+
+def get_daytona() -> Daytona:
+    """Lazily initialize and return the Daytona client singleton."""
+    global _daytona_instance
+    if _daytona_instance is None:
+        _daytona_instance = Daytona(daytona_config)
+        logger.info("Daytona client initialized")
+    return _daytona_instance
 
 
 async def get_or_start_sandbox(sandbox_id: str):
@@ -48,7 +56,7 @@ async def get_or_start_sandbox(sandbox_id: str):
     logger.info(f"Getting or starting sandbox with ID: {sandbox_id}")
 
     try:
-        sandbox = daytona.get(sandbox_id)
+        sandbox = get_daytona().get(sandbox_id)
 
         # Check if sandbox needs to be started
         if (
@@ -57,11 +65,11 @@ async def get_or_start_sandbox(sandbox_id: str):
         ):
             logger.info(f"Sandbox is in {sandbox.state} state. Starting...")
             try:
-                daytona.start(sandbox)
+                get_daytona().start(sandbox)
                 # Wait a moment for the sandbox to initialize
                 # sleep(5)
                 # Refresh sandbox state after starting
-                sandbox = daytona.get(sandbox_id)
+                sandbox = get_daytona().get(sandbox_id)
 
                 # Start supervisord in a session when restarting
                 start_supervisord_session(sandbox)
@@ -137,7 +145,7 @@ def create_sandbox(password: str, project_id: str = None):
     )
 
     # Create the sandbox
-    sandbox = daytona.create(params)
+    sandbox = get_daytona().create(params)
     logger.info(f"Sandbox created with ID: {sandbox.id}")
 
     # Start supervisord in a session for new sandbox
@@ -153,10 +161,10 @@ async def delete_sandbox(sandbox_id: str):
 
     try:
         # Get the sandbox
-        sandbox = daytona.get(sandbox_id)
+        sandbox = get_daytona().get(sandbox_id)
 
         # Delete the sandbox
-        daytona.delete(sandbox)
+        get_daytona().delete(sandbox)
 
         logger.info(f"Successfully deleted sandbox {sandbox_id}")
         return True

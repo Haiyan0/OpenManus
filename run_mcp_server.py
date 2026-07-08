@@ -8,4 +8,4 @@ if __name__ == "__main__":
 
     # Create and run server (maintaining original flow)
     server = MCPServer()
-    server.run(transport=args.transport)
+    server.run(transport=args.transport, host=args.host, port=args.port)

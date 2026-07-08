@@ -114,9 +114,12 @@ class ToolCallAgent(ReActAgent):
             if self.tool_choices == ToolChoice.REQUIRED and not self.tool_calls:
                 return True  # Will be handled in act()
 
-            # For 'auto' mode, continue with content if no commands but content exists
+            # For 'auto' mode, if no tool calls but content exists,
+            # the model chose to respond with text — mark as finished
             if self.tool_choices == ToolChoice.AUTO and not self.tool_calls:
-                return bool(content)
+                if content:
+                    self.state = AgentState.FINISHED
+                return False
 
             return bool(self.tool_calls)
         except Exception as e:

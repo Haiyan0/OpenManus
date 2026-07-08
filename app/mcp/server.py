@@ -147,7 +147,7 @@ class MCPServer:
         for tool in self.tools.values():
             self.register_tool(tool)
 
-    def run(self, transport: str = "stdio") -> None:
+    def run(self, transport: str = "stdio", host: str = "127.0.0.1", port: int = 8000) -> None:
         """Run the MCP server."""
         # Register all tools
         self.register_all_tools()
@@ -157,7 +157,10 @@ class MCPServer:
 
         # Start server (with same logging as original)
         logger.info(f"Starting OpenManus server ({transport} mode)")
-        self.server.run(transport=transport)
+        if transport == "stdio":
+            self.server.run(transport=transport)
+        else:
+            self.server.run(transport=transport, host=host, port=port)
 
 
 def parse_args() -> argparse.Namespace:
@@ -165,9 +168,20 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="OpenManus MCP Server")
     parser.add_argument(
         "--transport",
-        choices=["stdio"],
+        choices=["stdio", "sse", "streamable-http"],
         default="stdio",
-        help="Communication method: stdio or http (default: stdio)",
+        help="通信方式：stdio（默认）、sse 或 streamable-http",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="SSE/HTTP 模式下的监听地址（默认：127.0.0.1）",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="SSE/HTTP 模式下的监听端口（默认：8000）",
     )
     return parser.parse_args()
 
@@ -177,4 +191,4 @@ if __name__ == "__main__":
 
     # Create and run server (maintaining original flow)
     server = MCPServer()
-    server.run(transport=args.transport)
+    server.run(transport=args.transport, host=args.host, port=args.port)
