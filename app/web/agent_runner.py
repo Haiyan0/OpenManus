@@ -8,7 +8,7 @@ import asyncio
 from typing import Any, Optional
 
 from app.agent.manus import Manus
-from app.schema import AgentState, ToolCall
+from app.schema import ToolCall
 
 
 class ObservableManus(Manus):
@@ -78,6 +78,8 @@ class ObservableManus(Manus):
             },
         )
         result = await super().execute_tool(command)
+        # 依赖: ToolCallAgent.execute_tool() 在异常时返回 "Error: ..." 格式的字符串
+        # 如果父类修改了返回格式，需要同步更新此检测逻辑
         ok = not str(result).startswith("Error:")
         await self._emit(
             "tool_end",

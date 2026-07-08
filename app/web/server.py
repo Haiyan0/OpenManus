@@ -7,7 +7,6 @@
 """
 
 import asyncio
-import os
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -66,20 +65,21 @@ async def websocket_chat(ws: WebSocket):
     queue: asyncio.Queue = asyncio.Queue()
     agent.event_queue = queue
 
-    # 启动 agent 执行任务
-    agent_task = asyncio.create_task(agent.run(prompt))
+    # 启动 agent 执行任务 — 用包装协程在完成后推送哨兵
+    async def _run_agent():
+        await agent.run(prompt)
+        await queue.put(None)  # 哨兵
 
-    # 消费事件队列并推送给前端
+    agent_task = asyncio.create_task(_run_agent())
+
+    # 消费事件队列并推送给前端（阻塞等待，遇到 None 哨兵退出）
     try:
-        while not agent_task.done() or not queue.empty():
-            try:
-                event = await asyncio.wait_for(queue.get(), timeout=0.1)
-                await ws.send_json(event)
-            except asyncio.TimeoutError:
-                # 队列暂时为空，继续循环（除非 agent 已结束且队列空了）
-                continue
+        while True:
+            event = await queue.get()
+            if event is None:
+                break
+            await ws.send_json(event)
 
-        # 确保 agent 任务完成（可能已经 done）
         await agent_task
     except WebSocketDisconnect:
         # 客户端断开连接，取消 agent
@@ -87,6 +87,10 @@ async def websocket_chat(ws: WebSocket):
         try:
             await agent_task
         except asyncio.CancelledError:
+            pass
+        try:
+            await agent.cleanup()
+        except Exception:
             pass
     except Exception as exc:
         # 未预期的错误
