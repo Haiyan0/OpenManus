@@ -5,9 +5,7 @@
 返回匹配的本地 CSV 数据文件列表，供数据分析使用。
 """
 
-import os
 from pathlib import Path
-from typing import Any
 
 from app.config import PROJECT_ROOT
 from app.logger import logger
@@ -76,6 +74,7 @@ class CompanyDataLookup(BaseTool):
                     f"请使用常规数据分析流程。"
                 )
 
+            company_no_project_matches = []
             for company_dir in companies:
                 company_name = company_dir.name
 
@@ -136,11 +135,17 @@ class CompanyDataLookup(BaseTool):
                         ),
                     )
 
-                # 命中企业但未命中具体项目 —— 列出可用项目供参考
+                # 命中企业但未命中具体项目 —— 列出可用项目供参考，继续检查其他企业
                 available_projects = [d.name for d in projects]
+                company_no_project_matches.append(
+                    f"  - {company_name}（可用项目：{', '.join(available_projects)}）"
+                )
+                continue
+
+            if company_no_project_matches:
                 return self.fail_response(
-                    f"在 '{company_name}' 企业下未找到与查询完全匹配的项目。\n"
-                    f"该企业下有以下可用项目：{', '.join(available_projects)}\n"
+                    f"以下企业名称匹配但未找到匹配的项目：\n"
+                    f"{chr(10).join(company_no_project_matches)}\n"
                     f"请确认用户需要分析哪个项目的数据，或提示用户补充项目名称。"
                 )
 
