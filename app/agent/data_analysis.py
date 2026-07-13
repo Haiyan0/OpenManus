@@ -7,6 +7,7 @@ from app.tool import Terminate, ToolCollection
 from app.tool.chart_visualization.chart_prepare import VisualizationPrepare
 from app.tool.chart_visualization.data_visualization import DataVisualization
 from app.tool.chart_visualization.python_execute import NormalPythonExecute
+from app.tool.company_data_lookup import CompanyDataLookup
 
 
 class DataAnalysis(ToolCallAgent):
@@ -29,6 +30,7 @@ class DataAnalysis(ToolCallAgent):
     # Add general-purpose tools to the tool collection
     available_tools: ToolCollection = Field(
         default_factory=lambda: ToolCollection(
+            CompanyDataLookup(),
             NormalPythonExecute(),
             VisualizationPrepare(),
             DataVisualization(),
