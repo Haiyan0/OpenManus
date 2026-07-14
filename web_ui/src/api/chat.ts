@@ -19,6 +19,13 @@ export interface MessageInfo {
   created_at: string;
 }
 
+export interface WorkspaceFile {
+  name: string;
+  path: string;
+  size: number;
+  is_dir: boolean;
+}
+
 export const chatApi = {
   list: () => client.get<ChatInfo[]>("/api/chats"),
   create: (agent_type: string, title?: string) =>
@@ -30,4 +37,13 @@ export const chatApi = {
     client.get<MessageInfo[]>(`/api/chats/${id}/messages`, {
       params: { before_id: beforeId, limit },
     }),
+  /** 列出 workspace 中的生成文件 */
+  listWorkspaceFiles: (chatId: number) =>
+    client.get<WorkspaceFile[]>(`/api/chats/${chatId}/workspace/files`),
+  /** 构造下载链接（可直接用于浏览器 <a> 标签） */
+  workspaceDownloadUrl: (chatId: number, filePath: string) => {
+    const token = localStorage.getItem("access_token");
+    // 通过 query 参数带 token，让浏览器直接触发下载
+    return `/api/chats/${chatId}/workspace/download?path=${encodeURIComponent(filePath)}&token=${token}`;
+  },
 };

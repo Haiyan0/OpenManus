@@ -2,12 +2,15 @@
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+import jwt as pyjwt
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import config
 from app.web.auth.models import User
+from app.web.auth.service import decode_access_token
 from app.web.chat.schemas import ChatCreate, ChatDetail, ChatOut, MessageOut, WorkspaceFile
 from app.web.chat.service import (
     create_chat,
@@ -159,6 +162,7 @@ async def api_list_workspace_files(
 async def api_download_workspace_file(
     chat_id: int,
     path: str = Query(..., description="相对于 workspace 根目录的文件路径"),
+    token: str = Query(None, description="JWT token（浏览器直接下载时的认证方式）"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
@@ -171,7 +175,19 @@ async def api_download_workspace_file(
         - 路径必须限定在用户 workspace 内（禁止 ../ 穿越）
         - 路径必须指向实际存在的文件
     """
-    await get_chat_or_404(db, chat_id, user.id)
+    # 如果 token 通过 query param 提供，手动验证（浏览器直接下载时走这个路径）
+    if token:
+        try:
+            payload = decode_access_token(token)
+        except pyjwt.PyJWTError:
+            raise HTTPException(status_code=401, detail="无效或过期的 token")
+        result = await db.execute(select(User).where(User.id == payload["user_id"]))
+        user = result.scalar_one_or_none()
+        if user is None:
+            raise HTTPException(status_code=401, detail="用户不存在")
+        await get_chat_or_404(db, chat_id, user.id)
+    else:
+        await get_chat_or_404(db, chat_id, user.id)
 
     ws_root = (
         config.web.sandbox_data_root

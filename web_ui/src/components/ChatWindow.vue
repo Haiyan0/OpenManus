@@ -6,11 +6,18 @@
         <h2 class="font-semibold text-gray-800">{{ title }}</h2>
         <p class="text-xs text-gray-400">Agent: {{ agentType }} · {{ running ? '运行中' : '就绪' }}</p>
       </div>
-      <span v-if="running" class="flex items-center gap-1 text-sm text-yellow-600">
-        <span class="animate-spin inline-block w-3 h-3 border-2 border-yellow-600 border-t-transparent rounded-full"></span>
-        运行中
-      </span>
-      <span v-else class="text-sm text-green-600">⚡ 就绪</span>
+      <div class="flex items-center gap-3">
+        <button
+          @click="$emit('toggleFiles')"
+          class="text-sm px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600 transition-colors"
+          title="打开/关闭文件面板"
+        >📁 文件</button>
+        <span v-if="running" class="flex items-center gap-1 text-sm text-yellow-600">
+          <span class="animate-spin inline-block w-3 h-3 border-2 border-yellow-600 border-t-transparent rounded-full"></span>
+          运行中
+        </span>
+        <span v-else class="text-sm text-green-600">⚡ 就绪</span>
+      </div>
     </header>
 
     <!-- 消息区 -->
@@ -54,7 +61,10 @@ const props = defineProps<{
   running: boolean;
 }>();
 
-const emit = defineEmits<{ send: [text: string] }>();
+const emit = defineEmits<{
+  send: [text: string];
+  toggleFiles: [];
+}>();
 
 const input = ref("");
 const msgContainer = ref<HTMLElement | null>(null);

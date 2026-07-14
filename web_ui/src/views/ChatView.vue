@@ -13,10 +13,16 @@
       :agentType="currentAgentType"
       :running="chatStore.running"
       @send="sendPrompt"
+      @toggle-files="showFilesPanel = !showFilesPanel"
     />
     <div v-else class="flex-1 flex items-center justify-center text-gray-400">
       <p>选择一个会话或新建一个开始</p>
     </div>
+    <!-- 文件下载面板 -->
+    <WorkspaceFilesPanel
+      :chatId="chatStore.currentChatId"
+      :visible="showFilesPanel"
+    />
     <NewChatDialog
       :show="showNewDialog"
       @close="showNewDialog = false"
@@ -32,6 +38,7 @@ import { useChatStore } from "../stores/chat";
 import { useAuthStore } from "../stores/auth";
 import ChatSidebar from "../components/ChatSidebar.vue";
 import ChatWindow from "../components/ChatWindow.vue";
+import WorkspaceFilesPanel from "../components/WorkspaceFilesPanel.vue";
 import NewChatDialog from "../components/NewChatDialog.vue";
 
 const chatStore = useChatStore();
@@ -39,6 +46,7 @@ const authStore = useAuthStore();
 const route = useRoute();
 const router = useRouter();
 const showNewDialog = ref(false);
+const showFilesPanel = ref(false);
 
 const currentTitle = computed(() =>
   chatStore.chats.find((c) => c.id === chatStore.currentChatId)?.title || ""
