@@ -4,12 +4,13 @@
 仅测试文件系统层面，不实际启动容器（除非 Docker 可用）。
 """
 import shutil
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from app.config import config
 from app.web.sandbox import service as sandbox_service
-from app.web.sandbox.service import ensure_user_directories
+from app.web.sandbox.service import ensure_user_directories, _patch_terminal_for_windows
 
 
 def test_ensure_user_directories_creates_paths():

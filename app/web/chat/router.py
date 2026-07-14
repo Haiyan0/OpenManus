@@ -46,6 +46,7 @@ async def api_create_chat(
         sandbox = await create_session_sandbox(user.id, chat.id, network_enabled=network)
         chat.sandbox_id = sandbox.container.id if sandbox.container else None
         await db.commit()
+        await db.refresh(chat)  # commit 后 refresh，避免 MissingGreenlet
     except Exception:
         # Sandbox 创建失败不影响会话创建，会话仍可使用
         pass

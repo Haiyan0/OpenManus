@@ -54,6 +54,65 @@ class WebDockerSandbox(DockerSandbox):
         return bindings
 
 
+def _patch_terminal_for_windows() -> None:
+    """修复 Windows Docker Desktop 上 DockerSession.create 无法获取 socket 的问题。
+
+    在 Linux 上，docker SDK exec_start(socket=True) 返回 SocketIO 包装对象，
+    真正的 socket 通过 ._sock 访问。但在 Windows 上，返回的是 NpipeSocket，
+    它本身就是 socket（有 recv/sendall/setblocking），没有 _sock 属性。
+
+    此函数在模块加载时执行一次，对 DockerSession.create 做 monkey-patch，
+    使其同时兼容两种平台。
+    """
+    from app.sandbox.core.terminal import DockerSession as _DockerSession
+
+    _original_create = _DockerSession.create
+
+    async def _patched_create(self, working_dir, env_vars):
+        startup_command = [
+            "bash",
+            "-c",
+            f"cd {working_dir} && "
+            "PROMPT_COMMAND='' "
+            "PS1='$ ' "
+            "exec bash --norc --noprofile",
+        ]
+        exec_data = self.api.exec_create(
+            self.container_id,
+            startup_command,
+            stdin=True,
+            tty=True,
+            stdout=True,
+            stderr=True,
+            privileged=True,
+            user="root",
+            environment={**env_vars, "TERM": "dumb", "PS1": "$ ", "PROMPT_COMMAND": ""},
+        )
+        self.exec_id = exec_data["Id"]
+
+        socket_data = self.api.exec_start(
+            self.exec_id, socket=True, tty=True, stream=True, demux=True
+        )
+
+        # 兼容 Linux (SocketIO._sock) 和 Windows (NpipeSocket 本身就是 socket)
+        if hasattr(socket_data, "_sock") and socket_data._sock is not None:
+            self.socket = socket_data._sock
+        elif hasattr(socket_data, "recv") and hasattr(socket_data, "sendall"):
+            # Windows: NpipeSocket 就是 socket，直接使用
+            self.socket = socket_data
+        else:
+            raise RuntimeError("Failed to get socket connection")
+
+        self.socket.setblocking(False)
+        await self._read_until_prompt()
+
+    _DockerSession.create = _patched_create  # type: ignore[method-assign]
+
+
+# 模块加载时执行一次 Windows 终端兼容性修复
+_patch_terminal_for_windows()
+
+
 def ensure_user_directories(user_id: int, chat_id: int) -> tuple[Path, str]:
     """确保用户 + 会话的隔离目录存在。
 

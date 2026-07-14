@@ -101,7 +101,15 @@ async def handle_chat_ws(
 
             # ── 事件推流 + 持久化循环 ──────────
             while True:
-                event = await event_queue.get()
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=30)
+                except asyncio.TimeoutError:
+                    # 每 30 秒发送一次心跳，防止 keepalive 超时
+                    try:
+                        await ws.send_json({"type": "heartbeat"})
+                    except Exception:
+                        break
+                    continue
                 if event is None:
                     break
 
