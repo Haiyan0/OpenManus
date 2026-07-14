@@ -39,3 +39,11 @@ class MessageOut(BaseModel):
 
 class ChatDetail(ChatOut):
     messages: list[MessageOut] = []
+
+
+class WorkspaceFile(BaseModel):
+    """workspace 中的生成文件信息。"""
+    name: str                         # 文件名
+    path: str                         # 相对于 workspace 根目录的路径
+    size: int                         # 字节数
+    is_dir: bool = False              # 是否为目录

@@ -1,9 +1,14 @@
 """会话 CRUD 路由: /api/chats/*"""
+from pathlib import Path
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import config
 from app.web.auth.models import User
-from app.web.chat.schemas import ChatCreate, ChatDetail, ChatOut, MessageOut
+from app.web.chat.schemas import ChatCreate, ChatDetail, ChatOut, MessageOut, WorkspaceFile
 from app.web.chat.service import (
     create_chat,
     delete_chat,
@@ -92,3 +97,104 @@ async def api_list_messages(
     await get_chat_or_404(db, chat_id, user.id)   # 权限校验
     msgs = await list_messages(db, chat_id, before_id=before_id, limit=limit)
     return [MessageOut.model_validate(m) for m in msgs]
+
+
+# ── Workspace 文件浏览与下载 ──────────────────────────
+
+# 文件扩展名 → MIME 类型映射（常见生成产物）
+_MIME_MAP: dict[str, str] = {
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".md": "text/markdown",
+    ".txt": "text/plain",
+    ".py": "text/x-python",
+    ".html": "text/html",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".svg": "image/svg+xml",
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".zip": "application/zip",
+}
+
+
+def _scan_workspace(root: Path, base: Path) -> list[WorkspaceFile]:
+    """递归扫描 workspace 目录，跳过临时脚本和 __pycache__。"""
+    files: list[WorkspaceFile] = []
+    for entry in sorted(root.iterdir(), key=lambda p: (p.is_file(), p.name)):
+        if entry.name.startswith("_sandbox_script_") or entry.name == "__pycache__":
+            continue
+        rel = str(entry.relative_to(base)).replace("\\", "/")
+        if entry.is_dir():
+            files.append(WorkspaceFile(name=entry.name, path=rel, size=0, is_dir=True))
+            files.extend(_scan_workspace(entry, base))
+        else:
+            size = entry.stat().st_size
+            files.append(WorkspaceFile(name=entry.name, path=rel, size=size))
+    return files
+
+
+@router.get("/{chat_id}/workspace/files", response_model=list[WorkspaceFile])
+async def api_list_workspace_files(
+    chat_id: int,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """列出会话 workspace 中的所有生成文件（含子目录）。
+
+    返回文件列表，前端可直接渲染为文件树 + 下载链接。
+    """
+    await get_chat_or_404(db, chat_id, user.id)
+
+    # workspace 目录: {sandbox_data_root}/users/{user_id}/workspace/{chat_id}/
+    ws_root = config.web.sandbox_data_root / "users" / str(user.id) / "workspace" / str(chat_id)
+    if not ws_root.exists():
+        return []
+
+    return _scan_workspace(ws_root, ws_root)
+
+
+@router.get("/{chat_id}/workspace/download")
+async def api_download_workspace_file(
+    chat_id: int,
+    path: str = Query(..., description="相对于 workspace 根目录的文件路径"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """下载 workspace 中的指定文件。
+
+    使用方式（前端）：
+        /api/chats/{chat_id}/workspace/download?path=visualization/report.html
+
+    安全限制：
+        - 路径必须限定在用户 workspace 内（禁止 ../ 穿越）
+        - 路径必须指向实际存在的文件
+    """
+    await get_chat_or_404(db, chat_id, user.id)
+
+    ws_root = (
+        config.web.sandbox_data_root
+        / "users" / str(user.id) / "workspace" / str(chat_id)
+    )
+
+    # 安全：防路径穿越
+    safe_path = Path(path).as_posix()
+    if ".." in safe_path.split("/"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="非法文件路径")
+
+    file_path = ws_root / safe_path
+    if not file_path.exists() or not file_path.is_file():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="文件不存在")
+
+    # MIME 类型推断
+    suffix = file_path.suffix.lower()
+    media_type = _MIME_MAP.get(suffix, "application/octet-stream")
+
+    return FileResponse(
+        str(file_path),
+        filename=file_path.name,
+        media_type=media_type,
+    )
