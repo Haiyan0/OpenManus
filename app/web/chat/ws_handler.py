@@ -89,7 +89,7 @@ async def handle_chat_ws(
 
             # ── Agent ───────────────────────────
             agent = await create_observable_agent(
-                chat.agent_type, event_queue
+                chat.agent_type, event_queue, sandbox=sandbox
             )
 
             # 启动 Agent（后台执行）

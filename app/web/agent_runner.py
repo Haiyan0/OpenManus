@@ -166,12 +166,14 @@ class ObservableDataAnalysis(DataAnalysis):
 async def create_observable_agent(
     agent_type: str,
     event_queue: asyncio.Queue,
+    sandbox: object | None = None,
 ) -> Manus | DataAnalysis:
     """根据 agent_type 创建已初始化的 Observable Agent 实例。
 
     Args:
         agent_type: "general" → ObservableManus, "data_analysis" → ObservableDataAnalysis
         event_queue: asyncio.Queue，Agent 执行时通过此队列推送事件
+        sandbox: DockerSandbox 实例（可选），注入后 PythonExecute 工具在容器内执行
 
     Returns:
         已初始化（含 MCP 连接）的 Agent 实例
@@ -187,4 +189,9 @@ async def create_observable_agent(
         raise ValueError(f"不支持的 agent_type: {agent_type}")
 
     agent.event_queue = event_queue
+
+    # 注入 Sandbox → Agent 自动传播给所有执行类工具
+    if sandbox is not None and hasattr(agent, "set_sandbox"):
+        agent.set_sandbox(sandbox)
+
     return agent

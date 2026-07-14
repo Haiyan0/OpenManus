@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Dict
 
 from app.config import config
+from app.logger import logger
 from app.sandbox.core.sandbox import DockerSandbox
 
 if TYPE_CHECKING:
@@ -158,6 +159,18 @@ async def create_session_sandbox(
 
     host_ws, container_ws = ensure_user_directories(user_id, chat_id)
 
+    # 构建 bind mount：用户 workspace + company_data_resource（只读）
+    volume_bindings = {str(host_ws): container_ws}
+
+    # 如果宿主机存在 company_data_resource 目录，挂载到容器内 workspace 下
+    # Agent 的 python_execute 在容器内运行，需要能读取这些 CSV 数据文件
+    from app.config import PROJECT_ROOT
+    cdr_path = PROJECT_ROOT / "company_data_resource"
+    if cdr_path.exists() and cdr_path.is_dir():
+        cdr_container_path = f"{container_ws}/company_data_resource"
+        volume_bindings[str(cdr_path)] = cdr_container_path
+        logger.info(f"挂载 company_data_resource: {cdr_path} → {cdr_container_path}")
+
     # 构建 sandbox 配置（注意：需要导入 SandboxSettings，在函数内延迟导入避免循环）
     from app.config import SandboxSettings as _SandboxSettings
 
@@ -173,7 +186,7 @@ async def create_session_sandbox(
     # 创建并启动容器（使用 WebDockerSandbox 避免重复挂载 /workspace）
     sandbox = WebDockerSandbox(
         config=sandbox_config,
-        volume_bindings={str(host_ws): container_ws},
+        volume_bindings=volume_bindings,
     )
     await sandbox.create()
 

@@ -1,13 +1,24 @@
+import asyncio
 import multiprocessing
+import os
 import sys
+import uuid
 from io import StringIO
-from typing import Dict
+from pathlib import Path
+from typing import Dict, Optional
 
+from app.config import config
+from app.logger import logger
 from app.tool.base import BaseTool
 
 
 class PythonExecute(BaseTool):
-    """A tool for executing Python code with timeout and safety restrictions."""
+    """A tool for executing Python code with timeout and safety restrictions.
+
+    支持两种执行模式：
+    1. Sandbox 模式：代码写入 workspace 的临时 .py 文件 → 容器内 python 执行
+    2. 本地模式（fallback）：通过 multiprocessing.Process 在宿主机执行
+    """
 
     name: str = "python_execute"
     description: str = "Executes Python code string. Note: Only print outputs are visible, function return values are not captured. Use print statements to see results."
@@ -21,6 +32,16 @@ class PythonExecute(BaseTool):
         },
         "required": ["code"],
     }
+
+    # Sandbox 注入（可选，由 Agent 或 Web 层设置）
+    sandbox: Optional[object] = None
+    # 工作目录（sandbox 模式下为 /workspace，本地模式下为 config.workspace_root）
+    workspace_dir: str = ""
+
+    def model_post_init(self, __context) -> None:
+        """Pydantic 初始化后设置默认工作目录。"""
+        if not self.workspace_dir:
+            self.workspace_dir = str(config.workspace_root)
 
     def _run_code(self, code: str, result_dict: dict, safe_globals: dict) -> None:
         original_stdout = sys.stdout
@@ -42,16 +63,48 @@ class PythonExecute(BaseTool):
         timeout: int = 30,
     ) -> Dict:
         """
-        Executes the provided Python code with a timeout.
+        执行 Python 代码。
 
-        Args:
-            code (str): The Python code to execute.
-            timeout (int): Execution timeout in seconds.
-
-        Returns:
-            Dict: Contains 'output' with execution output or error message and 'success' status.
+        有 sandbox 时：写入 workspace 的临时文件 → 容器内执行 → 返回结果。
+        无 sandbox 时：通过 multiprocessing.Process 在本地执行（保持向后兼容）。
         """
+        if self.sandbox is not None:
+            return await self._execute_in_sandbox(code, timeout)
+        return await self._execute_local(code, timeout)
 
+    async def _execute_in_sandbox(self, code: str, timeout: int = 30) -> Dict:
+        """在 Docker Sandbox 容器内执行 Python 代码。
+
+        步骤：
+        1. 将代码写入 workspace 下的临时 .py 文件
+        2. 通过 sandbox.run_command("python script.py") 在容器内执行
+        3. 返回 stdout 输出
+        4. 临时文件保留在 workspace 中（用户可通过挂载目录查看）
+        """
+        script_name = f"_sandbox_script_{uuid.uuid4().hex[:8]}.py"
+        container_script_path = os.path.join(self.workspace_dir, script_name)
+
+        try:
+            await self.sandbox.write_file(container_script_path, code)
+
+            result = await self.sandbox.run_command(
+                f"cd {self.workspace_dir} && python {script_name}",
+                timeout=timeout,
+            )
+
+            return {
+                "observation": result,
+                "success": True,
+            }
+        except Exception as e:
+            logger.error(f"Sandbox 执行出错: {e}")
+            return {
+                "observation": f"Sandbox execution error: {str(e)}",
+                "success": False,
+            }
+
+    async def _execute_local(self, code: str, timeout: int = 30) -> Dict:
+        """在本地通过 multiprocessing.Process 执行（原有逻辑，向后兼容）。"""
         with multiprocessing.Manager() as manager:
             result = manager.dict({"observation": "", "success": False})
             if isinstance(__builtins__, dict):
@@ -64,7 +117,6 @@ class PythonExecute(BaseTool):
             proc.start()
             proc.join(timeout)
 
-            # timeout process
             if proc.is_alive():
                 proc.terminate()
                 proc.join(1)

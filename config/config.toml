@@ -95,7 +95,7 @@ temperature = 1.0                         # Controls randomness
 
 ## Sandbox configuration
 [sandbox]
-image = "python:3.12-slim"
+image = "openmanus-sandbox:latest"
 work_dir = "/workspace"
 memory_limit = "512m"       # 每容器内存上限
 cpu_limit = 1.0             # 每容器 CPU 核心数
@@ -126,5 +126,6 @@ mysql_database = "openmanus_web"
 jwt_secret_key = "XqoUjI--Rn1lQdKqrdqgC3jACS-knBWxSDQO4gtB3gg"
 jwt_expire_hours = 24
 
-sandbox_data_root = "C:/Data/openmanus"
+sandbox_data_root = "C:/Data/openmanus"     # Windows 本地
+# sandbox_data_root = "/data/openmanus"     # Linux 生产
 static_dir = "web_ui/dist"

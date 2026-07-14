@@ -51,7 +51,14 @@ async def test_create_session_sandbox_uses_user_workspace_as_only_workspace_moun
     host_dir = config.web.sandbox_data_root / "users" / "2" / "workspace" / "43"
     assert sandbox is not None
     assert captured["config"].work_dir == "/workspace"
-    assert captured["volume_bindings"] == {str(host_dir): "/workspace"}
+    # 基础挂载：用户 workspace → /workspace
+    assert captured["volume_bindings"][str(host_dir)] == "/workspace"
+    # company_data_resource 挂载（如果宿主机存在该目录）
+    from app.config import PROJECT_ROOT
+    cdr_path = PROJECT_ROOT / "company_data_resource"
+    if cdr_path.exists() and cdr_path.is_dir():
+        assert str(cdr_path) in captured["volume_bindings"]
+        assert captured["volume_bindings"][str(cdr_path)] == "/workspace/company_data_resource"
     shutil.rmtree(config.web.sandbox_data_root / "users" / "2", ignore_errors=True)
     sandbox_service._active_sandboxes.pop((2, 43), None)
 
