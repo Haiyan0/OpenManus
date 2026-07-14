@@ -14,7 +14,7 @@ from fastapi import FastAPI, WebSocket, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.config import config
+from app.config import PROJECT_ROOT, config
 from app.web.auth.router import router as auth_router
 from app.web.chat.router import router as chat_router
 from app.web.chat.ws_handler import handle_chat_ws
@@ -30,8 +30,12 @@ app.include_router(chat_router)
 app.include_router(files_router)
 
 # ── 前端静态文件 ─────────────────────────────
+# 将相对路径（如 "web_ui/dist"）相对于 PROJECT_ROOT 解析为绝对路径
+# 避免因 uvicorn 工作目录不同导致 404
 
 static_dir = Path(config.web.static_dir)
+if not static_dir.is_absolute():
+    static_dir = Path(PROJECT_ROOT) / static_dir
 static_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
