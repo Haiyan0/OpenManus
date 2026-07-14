@@ -7,9 +7,8 @@
 """
 from __future__ import annotations
 
-import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict
 
 from app.config import config
 from app.sandbox.core.sandbox import DockerSandbox
@@ -19,6 +18,40 @@ if TYPE_CHECKING:
 
 # 简单的内存字典追踪活跃 sandbox: (user_id, chat_id) -> DockerSandbox
 _active_sandboxes: dict[tuple[int, int], DockerSandbox] = {}
+
+
+class WebDockerSandbox(DockerSandbox):
+    """Web 层专用 Sandbox，避免 _prepare_volume_bindings 为 work_dir 生成临时目录挂载。
+
+    父类 DockerSandbox._prepare_volume_bindings() 无条件把 work_dir 挂载到一个
+    随机临时目录。Web 层通过 volume_bindings 显式指定了用户隔离目录到 work_dir
+    的映射，这会造成两个不同的 host 路径都挂载到同一个容器路径，Docker 直接拒绝：
+        "Duplicate mount point: /workspace"
+
+    本子类在自定义 volume_bindings 已覆盖 work_dir 时，跳过父类的临时目录挂载。
+    """
+
+    def _prepare_volume_bindings(self) -> Dict[str, Dict[str, str]]:
+        """与父类逻辑一致，但自定义绑定已覆盖 work_dir 时跳过自动临时目录。"""
+        bindings: Dict[str, Dict[str, str]] = {}
+
+        # 检查自定义 volume_bindings 是否已覆盖了 work_dir
+        work_dir = self.config.work_dir
+        already_bound = any(
+            container_path == work_dir
+            for container_path in self.volume_bindings.values()
+        )
+
+        if not already_bound:
+            # 没有显式绑定 → 沿用父类行为：创建临时目录挂载到 work_dir
+            host_work = self._ensure_host_dir(work_dir)
+            bindings[host_work] = {"bind": work_dir, "mode": "rw"}
+
+        # 添加自定义 volume bindings
+        for host_path, container_path in self.volume_bindings.items():
+            bindings[host_path] = {"bind": container_path, "mode": "rw"}
+
+        return bindings
 
 
 def ensure_user_directories(user_id: int, chat_id: int) -> tuple[Path, str]:
@@ -78,8 +111,8 @@ async def create_session_sandbox(
         network_enabled=network_enabled,
     )
 
-    # 创建并启动容器
-    sandbox = DockerSandbox(
+    # 创建并启动容器（使用 WebDockerSandbox 避免重复挂载 /workspace）
+    sandbox = WebDockerSandbox(
         config=sandbox_config,
         volume_bindings={str(host_ws): container_ws},
     )
