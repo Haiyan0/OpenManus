@@ -28,6 +28,21 @@ from app.web.sandbox.service import (
 )
 
 
+async def _resolve_user_from_token(token: str, db: AsyncSession) -> User:
+    """从 query token 解析用户（供 workspace 文件端点使用）。"""
+    if not token:
+        raise HTTPException(status_code=401, detail="请提供 token 参数")
+    try:
+        payload = decode_access_token(token)
+    except pyjwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="无效或过期的 token")
+    result = await db.execute(select(User).where(User.id == payload["user_id"]))
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=401, detail="用户不存在")
+    return user
+
+
 router = APIRouter(prefix="/api/chats", tags=["chat"])
 
 
@@ -141,13 +156,14 @@ def _scan_workspace(root: Path, base: Path) -> list[WorkspaceFile]:
 @router.get("/{chat_id}/workspace/files", response_model=list[WorkspaceFile])
 async def api_list_workspace_files(
     chat_id: int,
-    user: User = Depends(get_current_user),
+    token: str = Query(..., description="JWT token"),
     db: AsyncSession = Depends(get_db),
 ):
     """列出会话 workspace 中的所有生成文件（含子目录）。
 
-    返回文件列表，前端可直接渲染为文件树 + 下载链接。
+    token 通过 query 参数传递，前端可直接拼 URL 调用。
     """
+    user = await _resolve_user_from_token(token, db)
     await get_chat_or_404(db, chat_id, user.id)
 
     # workspace 目录: {sandbox_data_root}/users/{user_id}/workspace/{chat_id}/
@@ -162,32 +178,19 @@ async def api_list_workspace_files(
 async def api_download_workspace_file(
     chat_id: int,
     path: str = Query(..., description="相对于 workspace 根目录的文件路径"),
-    token: str = Query(None, description="JWT token（浏览器直接下载时的认证方式）"),
-    user: User = Depends(get_current_user),
+    token: str = Query(..., description="JWT token（浏览器 a 标签下载时的认证方式）"),
     db: AsyncSession = Depends(get_db),
 ) -> Any:
     """下载 workspace 中的指定文件。
 
-    使用方式（前端）：
-        /api/chats/{chat_id}/workspace/download?path=visualization/report.html
+    认证方式：?token=xxx query 参数（支持浏览器 <a> 标签直接点击下载）。
 
     安全限制：
         - 路径必须限定在用户 workspace 内（禁止 ../ 穿越）
         - 路径必须指向实际存在的文件
     """
-    # 如果 token 通过 query param 提供，手动验证（浏览器直接下载时走这个路径）
-    if token:
-        try:
-            payload = decode_access_token(token)
-        except pyjwt.PyJWTError:
-            raise HTTPException(status_code=401, detail="无效或过期的 token")
-        result = await db.execute(select(User).where(User.id == payload["user_id"]))
-        user = result.scalar_one_or_none()
-        if user is None:
-            raise HTTPException(status_code=401, detail="用户不存在")
-        await get_chat_or_404(db, chat_id, user.id)
-    else:
-        await get_chat_or_404(db, chat_id, user.id)
+    user = await _resolve_user_from_token(token, db)
+    await get_chat_or_404(db, chat_id, user.id)
 
     ws_root = (
         config.web.sandbox_data_root
