@@ -1,7 +1,7 @@
 # OpenManus Web 多用户服务 — 运行与运维手册
 
-> **版本**：0.2.0 | **分支**：feat/web-chat | **更新日期**：2026-07-14  
-> **面向读者**：初级 Python 程序员，具备基本的命令行和数据库操作能力  
+> **版本**：0.2.0 | **分支**：feat/web-chat | **更新日期**：2026-07-14
+> **面向读者**：初级 Python 程序员，具备基本的命令行和数据库操作能力
 > **覆盖范围**：本地开发运行、生产部署、日常运维、故障排查
 
 ---
@@ -37,13 +37,13 @@ OpenManus Web 是一个多用户 AI Agent Web 服务。用户通过浏览器登�
       └── WebSocket ──▶ Agent 执行引擎 ──▶ Docker Sandbox (每会话一个容器)
 ```
 
-| 组件 | 技术 | 用途 |
-|------|------|------|
-| **后端** | Python 3.12 + FastAPI | REST API + WebSocket |
-| **数据库** | MySQL 8.0 (云端) | 用户、会话、消息、文件记录 |
-| **Sandbox** | Docker 容器 | Agent 隔离执行环境 |
-| **前端** | Vue 3 + Vite + Tailwind CSS | 单页应用（SPA） |
-| **认证** | JWT (HS256, 24h有效期) | 无状态用户认证 |
+| 组件              | 技术                        | 用途                       |
+| ----------------- | --------------------------- | -------------------------- |
+| **后端**    | Python 3.12 + FastAPI       | REST API + WebSocket       |
+| **数据库**  | MySQL 8.0 (云端)            | 用户、会话、消息、文件记录 |
+| **Sandbox** | Docker 容器                 | Agent 隔离执行环境         |
+| **前端**    | Vue 3 + Vite + Tailwind CSS | 单页应用（SPA）            |
+| **认证**    | JWT (HS256, 24h有效期)      | 无状态用户认证             |
 
 ### 1.3 关键文件清单
 
@@ -82,13 +82,13 @@ OpenManus/
 
 ### 2.1 前置条件
 
-| 软件 | 最低版本 | 检查命令 |
-|------|----------|----------|
-| Windows 11 / macOS / Linux | — | — |
-| Python | 3.12 | `python --version` |
-| Docker Desktop | 24+ | `docker --version` |
-| Node.js（仅前端开发） | 20 LTS | `node --version` |
-| MySQL（云端或本地） | 8.0 | `mysql --version` |
+| 软件                       | 最低版本 | 检查命令             |
+| -------------------------- | -------- | -------------------- |
+| Windows 11 / macOS / Linux | —       | —                   |
+| Python                     | 3.12     | `python --version` |
+| Docker Desktop             | 24+      | `docker --version` |
+| Node.js（仅前端开发）      | 20 LTS   | `node --version`   |
+| MySQL（云端或本地）        | 8.0      | `mysql --version`  |
 
 ### 2.2 一次性搭建（Windows 11 为例）
 
@@ -239,10 +239,48 @@ sandbox_data_root = "C:/Data/openmanus"     # Windows 本地
 static_dir = "web_ui/dist"
 ```
 
-> ⚠️ **关键**：`jwt_secret_key` 必须改为随机字符串。可以这样生成：
-> ```powershell
-> python -c "import secrets; print(secrets.token_urlsafe(32))"
-> ```
+> ⚠️ **关键**：`jwt_secret_key` 必须改为随机字符串。以下是详细说明。
+
+#### 什么是 jwt_secret_key
+
+它就是一把**签名密钥**。可以理解为：你给每个登录用户发了一张"电子门禁卡"（JWT token），`jwt_secret_key` 就是你用来在门禁卡上盖章的**私人印章**。
+
+**它在哪里被使用？** 只有两处，都在 `app/web/auth/service.py` 里：
+
+| 场景 | 函数 | 做了什么 |
+|------|------|----------|
+| 用户登录时——签发 token | `create_access_token()` | 用密钥对 token 签名（盖章） |
+| 用户每次请求 API 时——验证 token | `decode_access_token()` | 用同一把密钥验证签名（验章） |
+
+```
+用户登录                              用户后续请求 API
+  POST /api/auth/login                 GET /api/chats
+  {username, password}                 Header: Bearer <token>
+  │                                    │
+  ▼                                    ▼
+create_access_token()              decode_access_token()
+  用 jwt_secret_key 签名             用 jwt_secret_key 验签
+  生成 token → 返回前端              签名有效？→ 通过
+                                      签名无效/过期？→ 401
+
+流程：用户登录成功 → 后端签发 JWT → 前端存到 localStorage
+    → 后续请求前端自动在 Header 里带 token → 后端验证签名通过
+```
+
+**为什么必须改？** token 的内容（用户名、用户 ID）只是 base64 编码，任何人都能解码看到。但 token 末尾的**签名**是哈希过的——只有持有同一把 `jwt_secret_key` 的人才能生成合法签名。如果密钥是公开的 `"please-change-me..."`，攻击者可以伪造任意用户的 token 来冒充登录。
+
+**如何生成？** 一行命令就能生成一个安全的随机密钥：
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+输出示例：`dGg7XpQ2vL9mKj8wR1yF3bN6cA5eH4sT` —— 复制粘贴到 `jwt_secret_key` 即可。
+
+**开发 + 生产注意事项：**
+- Windows 开发机和 Linux 服务器**用同一个值**最佳——这样跨环境不会有 token 验证问题
+- 如果不小心泄露（比如提交到了公开仓库），立即生成新的——所有已登录用户需重新登录即可
+- 这个值**不需要记在脑子里**，它只存在于 `config.toml` 这一处
 
 ---
 
@@ -263,6 +301,7 @@ python web_run.py
 ```
 
 后端启动后：
+
 - **API 文档**：http://localhost:8080/docs （Swagger UI，可交互测试所有 API）
 - **聊天界面**：http://localhost:8080 （Vue 3 SPA）
 - **WebSocket**：`ws://localhost:8080/ws/{chat_id}?token={jwt}`
@@ -302,16 +341,16 @@ taskkill /F /IM python.exe    # 注意：会杀死所有 Python 进程
 
 测试文件位于 `tests/web/`，采用 TDD（测试驱动开发）编写。
 
-| 测试文件 | 测试范围 | 需要 MySQL | 需要 Docker |
-|----------|----------|------------|-------------|
-| `test_config.py` | WebSettings 配置加载 | 否 | 否 |
-| `test_auth_service.py` | 密码哈希 + JWT | 否 | 否 |
-| `test_auth_router.py` | 注册/登录 API | 是 | 否 |
-| `test_database.py` | 数据库连接冒烟 | 是 | 否 |
-| `test_chat_models.py` | Chat/Message ORM | 是 | 否 |
-| `test_chat_router.py` | 会话 CRUD API | 是 | 否 |
-| `test_sandbox_service.py` | 目录创建 | 否 | 否 |
-| `test_sandbox_integration.py` | Sandbox 容器集成 | 是 | 是 |
+| 测试文件                        | 测试范围             | 需要 MySQL | 需要 Docker |
+| ------------------------------- | -------------------- | ---------- | ----------- |
+| `test_config.py`              | WebSettings 配置加载 | 否         | 否          |
+| `test_auth_service.py`        | 密码哈希 + JWT       | 否         | 否          |
+| `test_auth_router.py`         | 注册/登录 API        | 是         | 否          |
+| `test_database.py`            | 数据库连接冒烟       | 是         | 否          |
+| `test_chat_models.py`         | Chat/Message ORM     | 是         | 否          |
+| `test_chat_router.py`         | 会话 CRUD API        | 是         | 否          |
+| `test_sandbox_service.py`     | 目录创建             | 否         | 否          |
+| `test_sandbox_integration.py` | Sandbox 容器集成     | 是         | 是          |
 
 ### 5.2 运行命令
 
@@ -492,13 +531,13 @@ rm -rf /data/openmanus/users/{user_id}/
 
 ### 7.5 监控建议
 
-| 指标 | 查看方式 |
-|------|----------|
-| 服务是否运行 | `sudo systemctl status openmanus-web` |
-| 内存占用 | `top -p $(pgrep -f web_run)` |
-| Docker 容器数 | `docker ps --filter "name=sandbox" \| wc -l` |
-| 磁盘空间 | `df -h /data/openmanus` |
-| 错误日志 | `sudo journalctl -u openmanus-web -p err --since "1 hour ago"` |
+| 指标          | 查看方式                                                         |
+| ------------- | ---------------------------------------------------------------- |
+| 服务是否运行  | `sudo systemctl status openmanus-web`                          |
+| 内存占用      | `top -p $(pgrep -f web_run)`                                   |
+| Docker 容器数 | `docker ps --filter "name=sandbox" \| wc -l`                    |
+| 磁盘空间      | `df -h /data/openmanus`                                        |
+| 错误日志      | `sudo journalctl -u openmanus-web -p err --since "1 hour ago"` |
 
 ---
 
@@ -602,33 +641,33 @@ app/web/
 
 ### 9.2 API 总表
 
-| 方法 | 路径 | 认证 | 说明 |
-|------|------|------|------|
-| POST | `/api/auth/register` | 否 | 注册 `{username, password}` |
-| POST | `/api/auth/login` | 否 | 登录 → `{access_token, user}` |
-| GET | `/api/chats` | 是 | 当前用户的会话列表 |
-| POST | `/api/chats` | 是 | 新建会话 `{agent_type, title?}` |
-| GET | `/api/chats/{id}` | 是 | 会话详情 + 最近消息 |
-| DELETE | `/api/chats/{id}` | 是 | 删除会话（含 Sandbox 回收） |
-| GET | `/api/chats/{id}/messages` | 是 | 分页历史消息 |
-| POST | `/api/files/upload` | 是 | 上传文件（multipart） |
-| GET | `/api/files` | 是 | 文件列表 `?chat_id=` |
-| GET | `/api/files/{id}/download` | 是 | 下载文件 |
-| DELETE | `/api/files/{id}` | 是 | 删除文件 |
-| WS | `/ws/{chat_id}?token=` | 是 | WebSocket 聊天连接 |
+| 方法   | 路径                         | 认证 | 说明                             |
+| ------ | ---------------------------- | ---- | -------------------------------- |
+| POST   | `/api/auth/register`       | 否   | 注册`{username, password}`     |
+| POST   | `/api/auth/login`          | 否   | 登录 →`{access_token, user}`  |
+| GET    | `/api/chats`               | 是   | 当前用户的会话列表               |
+| POST   | `/api/chats`               | 是   | 新建会话`{agent_type, title?}` |
+| GET    | `/api/chats/{id}`          | 是   | 会话详情 + 最近消息              |
+| DELETE | `/api/chats/{id}`          | 是   | 删除会话（含 Sandbox 回收）      |
+| GET    | `/api/chats/{id}/messages` | 是   | 分页历史消息                     |
+| POST   | `/api/files/upload`        | 是   | 上传文件（multipart）            |
+| GET    | `/api/files`               | 是   | 文件列表`?chat_id=`            |
+| GET    | `/api/files/{id}/download` | 是   | 下载文件                         |
+| DELETE | `/api/files/{id}`          | 是   | 删除文件                         |
+| WS     | `/ws/{chat_id}?token=`     | 是   | WebSocket 聊天连接               |
 
 ### 9.3 WebSocket 事件协议（7 种类型）
 
-| 事件 | 方向 | 关键字段 | 触发时机 |
-|------|------|----------|----------|
-| `prompt` | 客户端→服务端 | `content` | 用户发送任务 |
-| `step_start` | 服务端→客户端 | `step`, `max_steps` | 每步开始 |
-| `thinking` | 服务端→客户端 | `content`, `tool_calls` | LLM 思考 |
-| `tool_start` | 服务端→客户端 | `tool`, `args` | 工具调用开始 |
-| `tool_end` | 服务端→客户端 | `tool`, `result`, `ok` | 工具调用结束 |
-| `assistant` | 服务端→客户端 | `content` | Agent 最终回复 |
-| `done` | 服务端→客户端 | `reason` | 任务完成 |
-| `error` | 服务端→客户端 | `message` | 异常 |
+| 事件           | 方向           | 关键字段                     | 触发时机       |
+| -------------- | -------------- | ---------------------------- | -------------- |
+| `prompt`     | 客户端→服务端 | `content`                  | 用户发送任务   |
+| `step_start` | 服务端→客户端 | `step`, `max_steps`      | 每步开始       |
+| `thinking`   | 服务端→客户端 | `content`, `tool_calls`  | LLM 思考       |
+| `tool_start` | 服务端→客户端 | `tool`, `args`           | 工具调用开始   |
+| `tool_end`   | 服务端→客户端 | `tool`, `result`, `ok` | 工具调用结束   |
+| `assistant`  | 服务端→客户端 | `content`                  | Agent 最终回复 |
+| `done`       | 服务端→客户端 | `reason`                   | 任务完成       |
+| `error`      | 服务端→客户端 | `message`                  | 异常           |
 
 ### 9.4 用户隔离三层模型
 
@@ -667,13 +706,13 @@ app/web/
 
 ### 10.1 启动失败
 
-| 症状 | 可能原因 | 解决 |
-|------|----------|------|
-| `ModuleNotFoundError: No module named 'xxx'` | 依赖未安装 | `pip install -r requirements.txt` |
-| `RuntimeError: Web 配置未找到` | config.toml 缺少 `[web]` 段 | 参考 config.example.toml 添加 |
-| `Can't connect to MySQL` | 数据库不可达 | 检查 MySQL 是否在线、防火墙、凭据 |
-| `No such image: python:3.12-slim` | Sandbox 镜像未拉取 | `docker pull python:3.12-slim` |
-| `Docker SDK 报错` | Docker Desktop 未运行 | 启动 Docker Desktop |
+| 症状                                           | 可能原因                     | 解决                                |
+| ---------------------------------------------- | ---------------------------- | ----------------------------------- |
+| `ModuleNotFoundError: No module named 'xxx'` | 依赖未安装                   | `pip install -r requirements.txt` |
+| `RuntimeError: Web 配置未找到`               | config.toml 缺少`[web]` 段 | 参考 config.example.toml 添加       |
+| `Can't connect to MySQL`                     | 数据库不可达                 | 检查 MySQL 是否在线、防火墙、凭据   |
+| `No such image: python:3.12-slim`            | Sandbox 镜像未拉取           | `docker pull python:3.12-slim`    |
+| `Docker SDK 报错`                            | Docker Desktop 未运行        | 启动 Docker Desktop                 |
 
 ### 10.2 API 返回 401
 
@@ -681,8 +720,8 @@ app/web/
 {"detail": "缺失认证 token"}
 ```
 
-**原因**：客户端没有在请求头携带 JWT。  
-**解决**：
+**原因**：客户端没有在请求头携带 JWT。**解决**：
+
 1. 先调用 `POST /api/auth/login` 获取 token
 2. 后续请求在 Header 中加 `Authorization: Bearer {token}`
 
@@ -690,7 +729,7 @@ app/web/
 {"detail": "无效或过期的 token"}
 ```
 
-**原因**：JWT 已过期（默认 24 小时）。  
+**原因**：JWT 已过期（默认 24 小时）。
 **解决**：重新登录获取新 token。
 
 ### 10.3 WebSocket 连接失败
@@ -700,6 +739,7 @@ ws.onerror 触发 → "连接失败"
 ```
 
 **排查步骤**：
+
 1. 确认后端已启动：`python web_run.py`
 2. 确认端口正确：WebSocket URL 中端口是否与后端一致
 3. 检查 URL 格式：`ws://localhost:8080/ws/{chat_id}?token={jwt}`
@@ -710,6 +750,7 @@ ws.onerror 触发 → "连接失败"
 Agent 执行中出错时，WebSocket 会推送 `{"type": "error", "message": "..."}`。
 
 **常见原因**：
+
 - LLM API 密钥不对 → 检查 `config.toml` 的 `[llm]` 段
 - LLM API 不可达 → 检查网络、API 地址
 - Docker Sandbox 创建失败 → 检查 Docker Desktop、镜像是否存在
@@ -748,7 +789,7 @@ taskkill /F /PID 12345
 
 访问 `http://localhost:8080` 看到 JSON `{"message": "OpenManus Web API", "note": "前端尚未构建"...}`
 
-**原因**：`web_ui/dist/` 目录不存在或为空。  
+**原因**：`web_ui/dist/` 目录不存在或为空。
 **解决**：
 
 ```powershell
