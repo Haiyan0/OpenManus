@@ -247,9 +247,9 @@ static_dir = "web_ui/dist"
 
 **它在哪里被使用？** 只有两处，都在 `app/web/auth/service.py` 里：
 
-| 场景 | 函数 | 做了什么 |
-|------|------|----------|
-| 用户登录时——签发 token | `create_access_token()` | 用密钥对 token 签名（盖章） |
+| 场景                              | 函数                      | 做了什么                     |
+| --------------------------------- | ------------------------- | ---------------------------- |
+| 用户登录时——签发 token          | `create_access_token()` | 用密钥对 token 签名（盖章）  |
 | 用户每次请求 API 时——验证 token | `decode_access_token()` | 用同一把密钥验证签名（验章） |
 
 ```
@@ -278,6 +278,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 输出示例：`dGg7XpQ2vL9mKj8wR1yF3bN6cA5eH4sT` —— 复制粘贴到 `jwt_secret_key` 即可。
 
 **开发 + 生产注意事项：**
+
 - Windows 开发机和 Linux 服务器**用同一个值**最佳——这样跨环境不会有 token 验证问题
 - 如果不小心泄露（比如提交到了公开仓库），立即生成新的——所有已登录用户需重新登录即可
 - 这个值**不需要记在脑子里**，它只存在于 `config.toml` 这一处
@@ -785,7 +786,33 @@ netstat -ano | findstr :8080
 taskkill /F /PID 12345
 ```
 
-### 10.7 前端页面空白
+### 10.7 前端静态资源 404（JS/CSS 加载失败）
+
+访问首页看到 HTML 但页面空白，浏览器控制台报错：
+
+```
+GET /assets/index-xxx.js HTTP/1.1" 404 Not Found
+GET /assets/index-xxx.css HTTP/1.1" 404 Not Found
+```
+
+**可能原因 1**：Vite 构建的 `base` 路径与服务器静态文件挂载点不一致。
+
+**解决**：检查 `web_ui/vite.config.ts` 中 `base` 必须设为 `"/static/"`（与 `server.py` 中 `app.mount("/static", ...)` 一致）：
+
+```typescript
+export default defineConfig({
+  base: "/static/",   // ← 必须与服务器挂载点一致
+  // ...
+});
+```
+
+修改后重新构建：`cd web_ui && npm run build`
+
+**可能原因 2**：uvicorn 启动的工作目录不是项目根目录，导致 `config.toml` 中的相对路径 `static_dir = "web_ui/dist"` 解析失败。
+
+**解决**：`server.py` 已在模块加载时将相对路径相对于 `PROJECT_ROOT`（项目根目录）解析为绝对路径，确保无论从哪个目录启动都能找到文件。如果仍出问题，检查 `config.toml` 中 `static_dir` 是否是有效路径。
+
+### 10.8 前端页面空白（首页返回 JSON）
 
 访问 `http://localhost:8080` 看到 JSON `{"message": "OpenManus Web API", "note": "前端尚未构建"...}`
 
