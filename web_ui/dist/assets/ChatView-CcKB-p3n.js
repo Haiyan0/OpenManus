@@ -1,0 +1,1 @@
+import{_ as t,o as s,b as r,e as c}from"./index-Bg58W3pA.js";const n={},o={class:"min-h-screen flex items-center justify-center"};function a(i,e){return s(),r("div",o,[...e[0]||(e[0]=[c("h1",{class:"text-2xl text-gray-500"},"聊天页面 — 占位",-1)])])}const f=t(n,[["render",a]]);export{f as default};
