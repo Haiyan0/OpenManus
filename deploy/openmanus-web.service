@@ -1,0 +1,20 @@
+[Unit]
+Description=OpenManus Web Service
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=openmanus
+WorkingDirectory=/opt/OpenManus
+Environment="PATH=/opt/conda/envs/open_manus/bin:/usr/bin:/bin"
+ExecStart=/opt/conda/envs/open_manus/bin/python web_run.py
+Restart=always
+RestartSec=10
+
+# 安全加固
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target
