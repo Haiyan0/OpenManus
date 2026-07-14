@@ -94,14 +94,13 @@ temperature = 1.0                         # Controls randomness
 
 
 ## Sandbox configuration
-#[sandbox]
-#use_sandbox = false
-#image = "python:3.12-slim"
-#work_dir = "/workspace"
-#memory_limit = "1g"  # 512m
-#cpu_limit = 2.0
-#timeout = 300
-#network_enabled = true
+[sandbox]
+image = "python:3.12-slim"
+work_dir = "/workspace"
+memory_limit = "512m"       # 每容器内存上限
+cpu_limit = 1.0             # 每容器 CPU 核心数
+timeout = 300               # 命令执行超时(秒)
+network_enabled = false     # 默认关闭网络（Web层会按Agent类型覆盖）
 
 # Daytona configuration
 [daytona]
