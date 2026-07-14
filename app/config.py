@@ -105,6 +105,37 @@ class SandboxSettings(BaseModel):
     )
 
 
+class WebSettings(BaseModel):
+    """Web 多用户服务配置。"""
+
+    mysql_host: str = Field(..., description="MySQL 主机地址")
+    mysql_port: int = Field(3306, description="MySQL 端口")
+    mysql_user: str = Field(..., description="MySQL 用户名")
+    mysql_password: str = Field(..., description="MySQL 密码")
+    mysql_database: str = Field(..., description="MySQL 数据库名")
+
+    jwt_secret_key: str = Field(..., description="JWT 签名密钥")
+    jwt_expire_hours: int = Field(24, description="JWT 有效期（小时）")
+
+    sandbox_data_root: Path = Field(
+        default=Path("C:/Data/openmanus"),
+        description="用户数据根目录（sandbox 挂载点）",
+    )
+    static_dir: Path = Field(
+        default=Path("web_ui/dist"),
+        description="前端静态文件目录（相对项目根）",
+    )
+
+    @property
+    def mysql_url(self) -> str:
+        """拼装 SQLAlchemy 异步 MySQL 连接串。"""
+        return (
+            f"mysql+aiomysql://{self.mysql_user}:{self.mysql_password}"
+            f"@{self.mysql_host}:{self.mysql_port}/{self.mysql_database}"
+            f"?charset=utf8mb4"
+        )
+
+
 class DaytonaSettings(BaseModel):
     daytona_api_key: str
     daytona_server_url: Optional[str] = Field(
@@ -189,6 +220,7 @@ class AppConfig(BaseModel):
     daytona_config: Optional[DaytonaSettings] = Field(
         None, description="Daytona configuration"
     )
+    web_config: Optional[WebSettings] = Field(None, description="Web 服务配置")
 
     class Config:
         arbitrary_types_allowed = True
@@ -296,6 +328,9 @@ class Config:
         else:
             daytona_settings = DaytonaSettings()
 
+        web_config_raw = raw_config.get("web", {})
+        web_settings = WebSettings(**web_config_raw) if web_config_raw else None
+
         mcp_config = raw_config.get("mcp", {})
         mcp_settings = None
         if mcp_config:
@@ -324,6 +359,7 @@ class Config:
             "mcp_config": mcp_settings,
             "run_flow_config": run_flow_settings,
             "daytona_config": daytona_settings,
+            "web_config": web_settings,
         }
 
         self._config = AppConfig(**config_dict)
@@ -357,6 +393,15 @@ class Config:
     def run_flow_config(self) -> RunflowSettings:
         """Get the Run Flow configuration"""
         return self._config.run_flow_config
+
+    @property
+    def web(self) -> "WebSettings":
+        """获取 Web 服务配置。"""
+        if self._config.web_config is None:
+            raise RuntimeError(
+                "Web 配置未找到，请在 config.toml 中添加 [web] 段"
+            )
+        return self._config.web_config
 
     @property
     def workspace_root(self) -> Path:
