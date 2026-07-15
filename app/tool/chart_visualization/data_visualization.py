@@ -82,6 +82,9 @@ Outputs:
             try:
                 raw = await self.sandbox.run_command(f"cat {json_path}")
                 raw = re.sub(r"\x1b\[[0-9;]*m", "", raw).strip()
+                # cat 输出末尾可能有 shell 提示符残余（如 "$ echo $?" " $ "）
+                raw = re.sub(r"\$\s*echo\s+\$\??\s*$", "", raw).strip()
+                raw = re.sub(r"\$\s*$", "", raw).strip()
                 return json.loads(raw)
             except Exception as e:
                 logger.error(f"Sandbox 读取 JSON 失败: {json_path} → {e}")
@@ -104,6 +107,8 @@ Outputs:
                 csv_path = f"{self.workspace_dir}/{csv_path}"
             raw = await self.sandbox.run_command(f"cat {csv_path}")
             raw = re.sub(r"\x1b\[[0-9;]*m", "", raw).strip()
+            raw = re.sub(r"\$\s*echo\s+\$\??\s*$", "", raw).strip()
+            raw = re.sub(r"\$\s*$", "", raw).strip()
             from io import StringIO
             return pd.read_csv(StringIO(raw))
         else:
