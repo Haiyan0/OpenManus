@@ -1,7 +1,9 @@
 import asyncio
 import json
 import os
-from typing import Any, Hashable
+import re
+from pathlib import Path
+from typing import Any, Hashable, Optional
 
 import pandas as pd
 from pydantic import Field, model_validator
@@ -50,12 +52,62 @@ Outputs:
     }
     llm: LLM = Field(default_factory=LLM, description="Language model instance")
 
+    # Sandbox 注入（可选，由 Agent 的 set_sandbox() 设置）
+    sandbox: Optional[object] = None
+    # 工作目录（sandbox 模式下为 /workspace，本地模式下为 config.workspace_root）
+    workspace_dir: str = ""
+
+    def model_post_init(self, __context) -> None:
+        """初始化默认工作目录。"""
+        if not self.workspace_dir:
+            self.workspace_dir = str(config.workspace_root)
+
     @model_validator(mode="after")
     def initialize_llm(self):
         """Initialize llm with default settings if not provided."""
         if self.llm is None or not isinstance(self.llm, LLM):
             self.llm = LLM(config_name=self.name.lower())
         return self
+
+    async def _read_json(self, json_path: str) -> list[dict[str, str]]:
+        """读取 JSON 信息文件。
+
+        有 sandbox 时：从容器内读取（文件由 visualization_preparation 在容器内生成）。
+        无 sandbox 时：直接从宿主机读取（保持向后兼容）。
+        """
+        if self.sandbox is not None:
+            # 智能路径解析：LLM 可能传 /workspace/viz_info.json 或 viz_info.json
+            if not json_path.startswith("/"):
+                json_path = f"{self.workspace_dir}/{json_path}"
+            try:
+                raw = await self.sandbox.run_command(f"cat {json_path}")
+                raw = re.sub(r"\x1b\[[0-9;]*m", "", raw).strip()
+                return json.loads(raw)
+            except Exception as e:
+                logger.error(f"Sandbox 读取 JSON 失败: {json_path} → {e}")
+                raise Exception(f"No such file or directory: {json_path}")
+        else:
+            resolved = json_path
+            if not os.path.isabs(json_path):
+                resolved = str(Path(self.workspace_dir) / json_path)
+            with open(resolved, "r", encoding="utf-8") as f:
+                return json.load(f)
+
+    async def _read_csv(self, csv_path: str) -> pd.DataFrame:
+        """读取 CSV 文件为 DataFrame。
+
+        有 sandbox 时：通过 cat 读取内容 → pandas.read_csv(StringIO)。
+        无 sandbox 时：直接 pd.read_csv 宿主机文件。
+        """
+        if self.sandbox is not None:
+            if not csv_path.startswith("/"):
+                csv_path = f"{self.workspace_dir}/{csv_path}"
+            raw = await self.sandbox.run_command(f"cat {csv_path}")
+            raw = re.sub(r"\x1b\[[0-9;]*m", "", raw).strip()
+            from io import StringIO
+            return pd.read_csv(StringIO(raw))
+        else:
+            return pd.read_csv(csv_path, encoding="utf-8")
 
     def get_file_path(
         self,
@@ -97,7 +149,7 @@ Outputs:
         data_list = []
         csv_file_path = self.get_file_path(json_info, "csvFilePath")
         for index, item in enumerate(json_info):
-            df = pd.read_csv(csv_file_path[index], encoding="utf-8")
+            df = await self._read_csv(csv_file_path[index])
             df = df.astype(object)
             df = df.where(pd.notnull(df), None)
             data_dict_list = df.to_json(orient="records", force_ascii=False)
@@ -202,13 +254,13 @@ Outputs:
     ) -> str:
         try:
             logger.info(f"📈 data_visualization with {json_path} in: {tool_type} ")
-            with open(json_path, "r", encoding="utf-8") as file:
-                json_info = json.load(file)
+            json_info = await self._read_json(json_path)
             if tool_type == "visualization":
                 return await self.data_visualization(json_info, output_type, language)
             else:
                 return await self.add_insighs(json_info, output_type)
         except Exception as e:
+            logger.error(f"data_visualization 执行失败: {e}")
             return {
                 "observation": f"Error: {e}",
                 "success": False,
