@@ -503,14 +503,25 @@ mysql -h <host> -u openmanus -p -e "SELECT id, username, created_at FROM openman
 
 ### 7.3 清理 Docker 资源
 
-Agent 执行完毕后 Sandbox 会被 WebSocket Handler 的 `finally` 块自动回收。如果出现异常导致孤儿容器残留：
+**多轮对话模式下**（`ec1adb4` 起），Sandbox 容器会在 WebSocket 连接持续期间保持运行，支持同一会话内反复提问。容器释放时机：
+
+| 触发条件 | 容器行为 |
+|---------|---------|
+| WebSocket 断开（关闭页面 / 网络断开 / 心跳超时） | `finally` 块调用 `destroy_session_sandbox` → 容器停止 + 删除 |
+| 用户停留在页面不动 | 30s 心跳保活 → 连接持续 → **容器不释放** |
+| 后端进程被 kill（Ctrl+C） | 容器成为孤儿进程，**不会自动回收** |
+
+**⚠️ 停止服务前必须先清理孤儿容器：**
 
 ```bash
-# 查看本项目创建的容器
-docker ps -a --filter "name=sandbox_u"
+# 查看本项目创建的容器（命名格式：sandbox_xxxxxxxx）
+docker ps -a --filter "name=sandbox"
+
+# 批量删除所有 Sandbox 容器（含运行中）
+docker rm -f $(docker ps -a --filter "name=sandbox" -q)
 
 # 批量删除已停止的 Sandbox 容器
-docker container prune --filter "name=sandbox_u" -f
+docker container prune --filter "name=sandbox" -f
 
 # 查看磁盘占用
 docker system df
