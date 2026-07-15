@@ -156,14 +156,13 @@ def _scan_workspace(root: Path, base: Path) -> list[WorkspaceFile]:
 @router.get("/{chat_id}/workspace/files", response_model=list[WorkspaceFile])
 async def api_list_workspace_files(
     chat_id: int,
-    token: str = Query(..., description="JWT token"),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """列出会话 workspace 中的所有生成文件（含子目录）。
 
-    token 通过 query 参数传递，前端可直接拼 URL 调用。
+    使用标准 Bearer token 认证，与 API 其他端点保持一致。
     """
-    user = await _resolve_user_from_token(token, db)
     await get_chat_or_404(db, chat_id, user.id)
 
     # workspace 目录: {sandbox_data_root}/users/{user_id}/workspace/{chat_id}/
