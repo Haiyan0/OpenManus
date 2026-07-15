@@ -62,74 +62,83 @@ async def handle_chat_ws(
         agent_task = None
 
         try:
-            # 接收第一条消息（prompt）
-            data = await ws.receive_json()
-            if data.get("type") != "prompt" or not data.get("content"):
-                await ws.send_json(
-                    {"type": "error", "message": "请发送有效的 prompt"}
-                )
-                return
-
-            prompt_text = data["content"]
-
-            # 持久化用户消息
-            await save_message(
-                db, chat_id, role="user", content=prompt_text
-            )
-
-            # ── Sandbox ─────────────────────────
-            network = chat.agent_type == "general"
-            sandbox = await create_session_sandbox(
-                user_id, chat_id, network_enabled=network
-            )
-            logger.info(
-                f"Sandbox 就绪: user={user_id}, chat={chat_id}, "
-                f"type={chat.agent_type}"
-            )
-
-            # ── Agent ───────────────────────────
-            agent = await create_observable_agent(
-                chat.agent_type, event_queue, sandbox=sandbox
-            )
-
-            # 启动 Agent（后台执行）
-            async def run_agent():
-                await agent.run(prompt_text)
-                await event_queue.put(None)  # 哨兵
-
-            agent_task = asyncio.create_task(run_agent())
-
-            # ── 事件推流 + 持久化循环 ──────────
+            # ── 多轮对话循环 ──────────────────────
+            # Agent 完成一轮后不立即销毁 Sandbox，
+            # 而是等待下一个 prompt（或超时）以便追问。
             while True:
-                try:
-                    event = await asyncio.wait_for(event_queue.get(), timeout=30)
-                except asyncio.TimeoutError:
-                    # 每 30 秒发送一次心跳，防止 keepalive 超时
-                    try:
-                        await ws.send_json({"type": "heartbeat"})
-                    except Exception:
-                        break
-                    continue
-                if event is None:
-                    break
-
-                # 持久化到 MySQL
-                try:
-                    await save_message(
-                        db,
-                        chat_id=chat_id,
-                        role=_event_role(event),
-                        content=event.get("content"),
-                        event_type=event["type"],
-                        tool_name=event.get("tool"),
-                        tool_args=_parse_args(event.get("args")),
+                # 接收 prompt
+                data = await ws.receive_json()
+                if data.get("type") != "prompt" or not data.get("content"):
+                    await ws.send_json(
+                        {"type": "error", "message": "请发送有效的 prompt"}
                     )
-                except Exception as db_err:
-                    logger.warning(f"消息持久化失败: {db_err}")
+                    return
 
-                await ws.send_json(event)
+                prompt_text = data["content"]
 
-            await agent_task
+                # 持久化用户消息
+                await save_message(
+                    db, chat_id, role="user", content=prompt_text
+                )
+
+                # ── Sandbox（首次或沙箱已被清理时创建）──
+                network = chat.agent_type == "general"
+                if sandbox is None:
+                    sandbox = await create_session_sandbox(
+                        user_id, chat_id, network_enabled=network
+                    )
+                    logger.info(
+                        f"Sandbox 就绪: user={user_id}, chat={chat_id}, "
+                        f"type={chat.agent_type}"
+                    )
+
+                # ── Agent（每次新对话重新创建）─────
+                if agent is not None:
+                    try:
+                        await agent.cleanup()
+                    except Exception:
+                        pass
+                agent = await create_observable_agent(
+                    chat.agent_type, event_queue, sandbox=sandbox
+                )
+
+                # 启动 Agent（后台执行）
+                async def run_agent():
+                    await agent.run(prompt_text)
+                    await event_queue.put(None)  # 哨兵
+
+                agent_task = asyncio.create_task(run_agent())
+
+                # ── 事件推流 + 持久化循环 ──────────
+                while True:
+                    try:
+                        event = await asyncio.wait_for(event_queue.get(), timeout=30)
+                    except asyncio.TimeoutError:
+                        try:
+                            await ws.send_json({"type": "heartbeat"})
+                        except Exception:
+                            break
+                        continue
+                    if event is None:
+                        break
+
+                    # 持久化到 MySQL
+                    try:
+                        await save_message(
+                            db,
+                            chat_id=chat_id,
+                            role=_event_role(event),
+                            content=event.get("content"),
+                            event_type=event["type"],
+                            tool_name=event.get("tool"),
+                            tool_args=_parse_args(event.get("args")),
+                        )
+                    except Exception as db_err:
+                        logger.warning(f"消息持久化失败: {db_err}")
+
+                    await ws.send_json(event)
+
+                await agent_task
 
         except WebSocketDisconnect:
             logger.info(f"WS 断开: user={user_id}, chat={chat_id}")
