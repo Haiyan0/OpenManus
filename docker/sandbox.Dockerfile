@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && update-locale LANG=zh_CN.UTF-8 LC_ALL=zh_CN.UTF-8 \
     && rm -rf /var/lib/apt/lists/*
 
-# ── 系统环境（中文 UTF-8） ─────────────────────────────
+# ── 系统环境 ──────────────────────────────────────────
 ENV LANG=zh_CN.UTF-8 \
     LC_ALL=zh_CN.UTF-8 \
     LANGUAGE=zh_CN:en
@@ -50,6 +50,11 @@ RUN pip install --no-cache-dir \
     scikit-learn~=1.5 \
     scipy~=1.14 \
     && python -c "import pandas, numpy, matplotlib; print('✓ Data analysis packages OK')"
+
+# matplotlib 默认字体指向 Noto Sans CJK SC
+# 这样 plt.title("中文标题") 不会出现豆腐块
+COPY docker/configure_matplotlib_chinese.py /tmp/
+RUN python /tmp/configure_matplotlib_chinese.py && rm /tmp/configure_matplotlib_chinese.py
 
 # ── 工作目录 ──────────────────────────────────────────
 WORKDIR /workspace
