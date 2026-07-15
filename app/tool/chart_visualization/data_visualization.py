@@ -115,6 +115,16 @@ Outputs:
         path_str: str,
         directory: str = None,
     ) -> list[str]:
+        """解析 JSON 中指定的文件路径。
+
+        有 sandbox 时：不做本地 os.path.exists 校验（文件在容器内），
+        直接用 json 中声明的路径。
+        无 sandbox 时：沿用原有逻辑——校验本地文件存在性并拼接 workspace_root。
+        """
+        if self.sandbox is not None:
+            # sandbox 模式：直接信任 json_info 中的路径，不做宿主机校验
+            return [item[path_str] for item in json_info]
+        # 本地模式：原有逻辑
         res = []
         for item in json_info:
             if os.path.exists(item[path_str]):
