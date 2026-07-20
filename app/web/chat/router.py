@@ -24,6 +24,7 @@ from app.web.chat.service import (
 from app.web.database import get_db
 from app.web.dependencies import get_current_user
 from app.web.sandbox.service import (
+    cleanup_chat_workspace,
     create_session_sandbox,
     destroy_session_sandbox,
     get_sandbox_for_chat,
@@ -99,9 +100,11 @@ async def api_delete_chat(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     chat = await get_chat_or_404(db, chat_id, user.id)
-    # 清理 Sandbox
+    # 清理 Sandbox 容器 + 追踪（不删文件，留给会话删除时统一清理）
     sandbox = get_sandbox_for_chat(user.id, chat_id)
     await destroy_session_sandbox(sandbox, user.id, chat_id)
+    # 清理 workspace 文件（用户主动删除时才删）
+    cleanup_chat_workspace(user.id, chat_id)
     await delete_chat(db, chat)
     return {"ok": True}
 

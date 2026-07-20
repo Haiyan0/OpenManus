@@ -36,6 +36,7 @@ import { ref, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useChatStore } from "../stores/chat";
 import { useAuthStore } from "../stores/auth";
+import { chatApi } from "../api/chat";
 import ChatSidebar from "../components/ChatSidebar.vue";
 import ChatWindow from "../components/ChatWindow.vue";
 import WorkspaceFilesPanel from "../components/WorkspaceFilesPanel.vue";
@@ -74,15 +75,67 @@ async function createAndEnter(agentType: string, title: string) {
   await switchChat(chat.id);
 }
 
-function sendPrompt(text: string) {
+async function sendPrompt(text: string, files: File[] = []) {
   if (!chatStore.currentChatId) return;
 
-  const ws = chatStore.connectWS(chatStore.currentChatId);
-  const userMsg = { role: "user", content: text, event_type: null, created_at: new Date().toISOString(), id: Date.now(), tool_name: null };
+  const chatId = chatStore.currentChatId;
+
+  // 显示上传中提示
+  if (files.length > 0) {
+    chatStore.currentMessages.push({
+      id: Date.now(),
+      role: "system",
+      content: `正在上传 ${files.length} 个文件...`,
+      event_type: "step_start",
+      created_at: new Date().toISOString(),
+      tool_name: null,
+      step: 0,
+      max_steps: 0,
+    } as any);
+  }
+
+  // 先上传所有文件到 workspace
+  const uploadedNames: string[] = [];
+  for (const file of files) {
+    try {
+      await chatApi.uploadFile(chatId, file);
+      uploadedNames.push(file.name);
+    } catch (err: any) {
+      chatStore.currentMessages.push({
+        id: Date.now(),
+        role: "assistant",
+        content: `文件上传失败: ${file.name} — ${err?.response?.data?.detail || err.message}`,
+        event_type: "error",
+        created_at: new Date().toISOString(),
+        tool_name: null,
+      } as any);
+    }
+  }
+
+  const ws = chatStore.connectWS(chatId);
+
+  // 构造用户消息显示文本（含已上传文件列表）
+  const displayText = uploadedNames.length > 0
+    ? `${text}\n\n📎 已上传: ${uploadedNames.join(", ")}`
+    : text;
+
+  const userMsg = {
+    role: "user",
+    content: displayText,
+    event_type: null,
+    created_at: new Date().toISOString(),
+    id: Date.now(),
+    tool_name: null,
+  };
   chatStore.currentMessages.push(userMsg as any);
   chatStore.running = true;
 
-  ws.onopen = () => ws.send(JSON.stringify({ type: "prompt", content: text }));
+  // 服务端 prompt：附加上传文件上下文，让 Agent 知道文件就在 /workspace/
+  const promptWithFiles = uploadedNames.length > 0
+    ? `[用户已上传以下文件到 /workspace/ 目录: ${uploadedNames.join(", ")}]\n\n${text}`
+    : text;
+
+  ws.onopen = () => ws.send(JSON.stringify({ type: "prompt", content: promptWithFiles }));
 
   ws.onmessage = (e) => {
     const evt = JSON.parse(e.data);

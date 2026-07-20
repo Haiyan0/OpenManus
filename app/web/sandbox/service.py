@@ -200,7 +200,7 @@ async def destroy_session_sandbox(
     user_id: int,
     chat_id: int,
 ) -> None:
-    """销毁 sandbox 容器并清理追踪。同时清空 workspace 目录（用户文件不留痕）。"""
+    """销毁 sandbox 容器并清理追踪。不删除 workspace 文件（用户可能还想下载）。"""
     key = (user_id, chat_id)
     if sandbox is not None:
         try:
@@ -208,8 +208,16 @@ async def destroy_session_sandbox(
         except Exception:
             pass
     _active_sandboxes.pop(key, None)
+    # 注：workspace 文件清理移至 cleanup_chat_workspace，
+    # 仅当用户主动删除会话时调用，WebSocket 断开时保留文件。
 
-    # 清理 workspace 目录（用户上传 + Agent 生成产物）
+
+def cleanup_chat_workspace(user_id: int, chat_id: int) -> None:
+    """清理指定会话的 workspace 目录（用户上传 + Agent 生成产物）。
+
+    仅在用户主动删除会话时调用，不在 WebSocket 断连时执行。
+    这样用户可以在 Agent 结束后下载生成文件。
+    """
     ws_dir = (
         config.web.sandbox_data_root
         / "users" / str(user_id) / "workspace" / str(chat_id)
