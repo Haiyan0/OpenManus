@@ -56,11 +56,15 @@ Outputs:
     sandbox: Optional[object] = None
     # 工作目录（sandbox 模式下为 /workspace，本地模式下为 config.workspace_root）
     workspace_dir: str = ""
+    # 宿主机工作目录（sandbox 模式下为宿主机隔离目录，供 npx ts-node 写文件用）
+    _host_workspace_dir: str = ""
 
     def model_post_init(self, __context) -> None:
         """初始化默认工作目录。"""
         if not self.workspace_dir:
             self.workspace_dir = str(config.workspace_root)
+        if not self._host_workspace_dir:
+            self._host_workspace_dir = str(config.workspace_root)
 
     @model_validator(mode="after")
     def initialize_llm(self):
@@ -99,10 +103,11 @@ Outputs:
     async def _read_csv(self, csv_path: str) -> pd.DataFrame:
         """读取 CSV 文件为 DataFrame。
 
-        有 sandbox 时：通过 cat 读取内容 → pandas.read_csv(StringIO)。
+        有 sandbox 时：通过 cat 读取内容 → pandas.read_csv(StringIO)。路径从容器内读。
         无 sandbox 时：直接 pd.read_csv 宿主机文件。
         """
         if self.sandbox is not None:
+            # 容器内路径：/workspace/viz/chart_xxx.csv 或 /workspace/chart_xxx.csv
             if not csv_path.startswith("/"):
                 csv_path = f"{self.workspace_dir}/{csv_path}"
             raw = await self.sandbox.run_command(f"cat {csv_path}")
@@ -304,7 +309,7 @@ Outputs:
             "output_type": output_type,
             "insights_id": insights_id,
             "task_type": task_type,
-            "directory": str(config.workspace_root),
+            "directory": self._host_workspace_dir or self.workspace_dir,
             "language": language,
         }
         # build async sub process

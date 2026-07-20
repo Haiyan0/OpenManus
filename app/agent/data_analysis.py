@@ -48,7 +48,7 @@ class DataAnalysis(ToolCallAgent):
         )
     )
 
-    def set_sandbox(self, sandbox: object, workspace: str = "/workspace") -> None:
+    def set_sandbox(self, sandbox: object, workspace: str = "/workspace", host_workspace: str = "") -> None:
         """注入 Sandbox 并同步到所有执行类工具。
 
         调用时机：Agent 创建后、run() 之前。
@@ -56,6 +56,7 @@ class DataAnalysis(ToolCallAgent):
         Args:
             sandbox: DockerSandbox 实例
             workspace: 容器内工作目录路径，默认 /workspace
+            host_workspace: 宿主机工作目录绝对路径（供 npx ts-node 写 chart 文件用）
         """
         self.sandbox = sandbox
         self._sandbox_workspace = workspace
@@ -71,3 +72,8 @@ class DataAnalysis(ToolCallAgent):
             if hasattr(tool, "workspace_dir") and workspace:
                 tool.workspace_dir = workspace
                 logger.debug(f"Workspace 已注入工具: {tool.name} → {workspace}")
+            # DataVisualization 的 invoke_vmind 用 npx ts-node 在宿主机写文件，
+            # 需要宿主机路径而非容器内路径
+            if hasattr(tool, "_host_workspace_dir") and host_workspace:
+                tool._host_workspace_dir = host_workspace
+                logger.debug(f"HostWorkspace 已注入工具: {tool.name} → {host_workspace}")

@@ -167,6 +167,7 @@ async def create_observable_agent(
     agent_type: str,
     event_queue: asyncio.Queue,
     sandbox: object | None = None,
+    host_workspace: str = "",
 ) -> Manus | DataAnalysis:
     """根据 agent_type 创建已初始化的 Observable Agent 实例。
 
@@ -174,6 +175,7 @@ async def create_observable_agent(
         agent_type: "general" → ObservableManus, "data_analysis" → ObservableDataAnalysis
         event_queue: asyncio.Queue，Agent 执行时通过此队列推送事件
         sandbox: DockerSandbox 实例（可选），注入后 PythonExecute 工具在容器内执行
+        host_workspace: 宿主机隔离 workspace 目录（供 DataVisualization 宿主机写文件用）
 
     Returns:
         已初始化（含 MCP 连接）的 Agent 实例
@@ -192,6 +194,6 @@ async def create_observable_agent(
 
     # 注入 Sandbox → Agent 自动传播给所有执行类工具
     if sandbox is not None and hasattr(agent, "set_sandbox"):
-        agent.set_sandbox(sandbox)
+        agent.set_sandbox(sandbox, host_workspace=host_workspace)
 
     return agent

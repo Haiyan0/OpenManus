@@ -19,7 +19,11 @@ from app.web.auth.service import decode_access_token
 from app.web.chat.models import Chat
 from app.web.chat.service import get_chat_or_404, save_message
 from app.web.database import AsyncSessionLocal
-from app.web.sandbox.service import create_session_sandbox, destroy_session_sandbox
+from app.web.sandbox.service import (
+    create_session_sandbox,
+    destroy_session_sandbox,
+    ensure_user_directories,
+)
 
 
 async def handle_chat_ws(
@@ -60,6 +64,7 @@ async def handle_chat_ws(
         sandbox = None
         agent = None
         agent_task = None
+        host_ws = ""   # 宿主机隔离 workspace 目录
 
         try:
             # ── 多轮对话循环 ──────────────────────
@@ -87,6 +92,11 @@ async def handle_chat_ws(
                     sandbox = await create_session_sandbox(
                         user_id, chat_id, network_enabled=network
                     )
+                    # 保存宿主机 workspace 路径（供 DataVisualization npx ts-node 写文件用）
+                    host_ws = str(
+                        config.web.sandbox_data_root
+                        / "users" / str(user_id) / "workspace" / str(chat_id)
+                    )
                     logger.info(
                         f"Sandbox 就绪: user={user_id}, chat={chat_id}, "
                         f"type={chat.agent_type}"
@@ -99,7 +109,8 @@ async def handle_chat_ws(
                     except Exception:
                         pass
                 agent = await create_observable_agent(
-                    chat.agent_type, event_queue, sandbox=sandbox
+                    chat.agent_type, event_queue, sandbox=sandbox,
+                    host_workspace=str(host_ws),
                 )
 
                 # 启动 Agent（后台执行）
