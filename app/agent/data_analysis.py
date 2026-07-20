@@ -72,6 +72,18 @@ class DataAnalysis(ToolCallAgent):
             if hasattr(tool, "workspace_dir") and workspace:
                 tool.workspace_dir = workspace
                 logger.debug(f"Workspace 已注入工具: {tool.name} → {workspace}")
+            # 修正发给 LLM 的工具描述中的宿主机路径 → 容器内路径
+            # NormalPythonExecute/VisualizationPrepare 在类定义时硬编码了 config.workspace_root，
+            # 不更新的话 LLM 会生成用宿主机路径的代码，容器内找不到文件，分析直接失败。
+            if hasattr(tool, "parameters") and isinstance(tool.parameters, dict):
+                code_desc = (
+                    tool.parameters.get("properties", {}).get("code", {}).get("description", "")
+                )
+                if code_desc and str(config.workspace_root) in code_desc:
+                    tool.parameters["properties"]["code"]["description"] = (
+                        code_desc.replace(str(config.workspace_root), workspace)
+                    )
+                    logger.debug(f"ToolDesc 已更新: {tool.name} → {workspace}")
             # DataVisualization 的 invoke_vmind 用 npx ts-node 在宿主机写文件，
             # 需要宿主机路径而非容器内路径
             if hasattr(tool, "_host_workspace_dir") and host_workspace:
