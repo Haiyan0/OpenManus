@@ -26,11 +26,13 @@ from app.web.files.router import router as files_router
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """FastAPI lifespan — 启动/关闭钩子。"""
-    yield  # 启动：什么也不做
-    # 关闭：强制清理所有 Sandbox 容器
-    logger.info("正在清理所有 Sandbox 容器...")
-    from app.web.sandbox.service import shutdown_all_sandboxes
+    # 启动：清理上一个进程残留的孤儿 Sandbox 容器
+    from app.web.sandbox.service import startup_sandbox_cleanup, shutdown_all_sandboxes
 
+    await startup_sandbox_cleanup()
+    yield
+    # 关闭：清理当前进程的 Sandbox + 兜底扫描
+    logger.info("正在清理所有 Sandbox 容器...")
     await shutdown_all_sandboxes()
     logger.info("所有 Sandbox 容器已清理完毕")
 

@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict
@@ -235,13 +236,70 @@ def get_sandbox_for_chat(user_id: int, chat_id: int) -> DockerSandbox | None:
     return _active_sandboxes.get((user_id, chat_id))
 
 
-async def shutdown_all_sandboxes() -> None:
-    """强制清理所有活跃 Sandbox 容器。
+async def _kill_orphan_sandboxes() -> int:
+    """通过 Docker API 列出并强制清理所有 sandbox_* 前缀的孤儿容器。
 
-    注册为 FastAPI shutdown 事件处理器，在 uvicorn 收到 SIGINT/SIGTERM 时调用。
-    确保 Ctrl+C 强制关闭服务端后不残留 Docker 容器。
+    Web 层和通用 sandbox 都使用 sandbox_{hex} 命名格式。
+    服务端重启时，残留容器不受内存 _active_sandboxes 追踪，必须从 Docker 层面扫。
+
+    Returns:
+        杀死的容器数量。
     """
-    # 复制 dict 避免迭代时修改
+    import docker as docker_lib
+
+    try:
+        client = docker_lib.from_env()
+        containers = await asyncio.to_thread(
+            client.containers.list,
+            all=False,  # 只列运行中的
+            filters={"name": "sandbox_"},
+        )
+    except Exception as exc:
+        logger.warning(f"无法连接 Docker daemon，跳过孤儿清理: {exc}")
+        return 0
+
+    killed = 0
+    for c in containers:
+        name = c.name
+        try:
+            await asyncio.to_thread(c.kill)
+            await asyncio.to_thread(c.remove)
+            killed += 1
+            logger.info(f"清理孤儿容器: {name}")
+        except Exception as exc:
+            logger.warning(f"清理孤儿失败 {name}: {exc}")
+            # 最后手段：直接通过低层 API 删
+            try:
+                await asyncio.to_thread(
+                    client.api.remove_container, c.id, force=True
+                )
+                killed += 1
+                logger.info(f"强制清理孤儿容器: {name}")
+            except Exception:
+                pass
+
+    if killed:
+        logger.info(f"启动时清理了 {killed} 个孤儿 Sandbox 容器")
+    return killed
+
+
+async def startup_sandbox_cleanup() -> None:
+    """启动时清理上一个进程残留的 Sandbox 容器。
+
+    注册为 FastAPI startup 事件处理器。
+    kill → remove 双保险确保容器不残留。
+    """
+    await _kill_orphan_sandboxes()
+
+
+async def shutdown_all_sandboxes() -> None:
+    """强制清理当前进程追踪的所有活跃 Sandbox + 兜底扫描所有 sandbox_* 容器。
+
+    注册为 FastAPI shutdown 事件处理器。
+    第一步：清理内存字典中的容器（正常流程）；
+    第二步：兜底扫描，杀掉可能的漏网之鱼（如 ws_handler finally 未覆盖到的）。
+    """
+    # 第一步：清理已追踪的
     remaining = dict(_active_sandboxes)
     _active_sandboxes.clear()
     for (user_id, chat_id), sandbox in remaining.items():
@@ -250,3 +308,8 @@ async def shutdown_all_sandboxes() -> None:
             logger.info(f"Shutdown 清理: user={user_id}, chat={chat_id}")
         except Exception as exc:
             logger.warning(f"Shutdown 清理失败 user={user_id} chat={chat_id}: {exc}")
+
+    # 第二步：兜底——Docker 级全部扫杀
+    killed = await _kill_orphan_sandboxes()
+    if killed:
+        logger.info(f"Shutdown 兜底清理完成: {killed} 个漏网容器")
