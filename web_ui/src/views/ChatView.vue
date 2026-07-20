@@ -5,6 +5,7 @@
       :currentId="chatStore.currentChatId"
       @select="switchChat"
       @new="showNewDialog = true"
+      @delete="deleteChat"
     />
     <ChatWindow
       v-if="chatStore.currentChatId"
@@ -73,6 +74,11 @@ async function createAndEnter(agentType: string, title: string) {
   const chat = await chatStore.createChat(agentType, title || undefined);
   router.push(`/chat/${chat.id}`);
   await switchChat(chat.id);
+}
+
+async function deleteChat(id: number) {
+  if (!confirm("确定要删除该会话吗？会话中的消息和文件将被永久清除。")) return;
+  await chatStore.deleteChat(id);
 }
 
 async function sendPrompt(text: string, files: File[] = []) {

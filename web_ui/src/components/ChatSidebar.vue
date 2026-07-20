@@ -11,13 +11,18 @@
         :key="chat.id"
         @click="$emit('select', chat.id)"
         :class="[
-          'px-4 py-3 cursor-pointer hover:bg-gray-50 border-b border-gray-50 text-sm',
+          'px-4 py-3 cursor-pointer hover:bg-gray-50 border-b border-gray-50 text-sm group relative',
           chat.id === currentId ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''
         ]"
       >
         <div class="flex items-center gap-2">
           <span>{{ chat.agent_type === 'data_analysis' ? '📊' : '🤖' }}</span>
-          <span class="truncate font-medium text-gray-700">{{ chat.title }}</span>
+          <span class="truncate font-medium text-gray-700 flex-1">{{ chat.title }}</span>
+          <button
+            @click.stop="$emit('delete', chat.id)"
+            class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all text-xs px-1"
+            title="删除会话"
+          >🗑</button>
         </div>
         <div class="text-xs text-gray-400 mt-0.5">{{ chat.agent_type === 'data_analysis' ? '数据分析' : '通用' }}</div>
       </div>
@@ -28,5 +33,5 @@
 <script setup lang="ts">
 import type { ChatInfo } from "../api/chat";
 defineProps<{ chats: ChatInfo[]; currentId: number | null }>();
-defineEmits<{ select: [id: number]; new: [] }>();
+defineEmits<{ select: [id: number]; new: []; delete: [id: number] }>();
 </script>
