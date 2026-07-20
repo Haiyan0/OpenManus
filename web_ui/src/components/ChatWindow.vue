@@ -25,13 +25,48 @@
       <div v-if="messages.length === 0" class="flex flex-col items-center justify-center h-full text-gray-400">
         <span class="text-5xl mb-4">🤖</span>
         <p>在下方输入你的任务</p>
+        <p class="text-xs mt-2 text-gray-300">支持上传 CSV/Excel 等数据文件，Agent 会自动读取分析</p>
       </div>
       <MessageBubble v-for="(msg, i) in messages" :key="i" :msg="msg" />
     </main>
 
     <!-- 输入 -->
     <footer class="bg-white border-t border-gray-200 px-4 py-3 shrink-0">
+      <!-- 已上传文件 chips -->
+      <div v-if="uploadedFiles.length > 0" class="flex flex-wrap gap-2 mb-2 max-w-3xl mx-auto">
+        <div
+          v-for="(f, i) in uploadedFiles"
+          :key="i"
+          class="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1 text-xs text-blue-700"
+        >
+          <span>{{ fileIcon(f.name) }}</span>
+          <span class="max-w-[120px] truncate" :title="f.name">{{ f.name }}</span>
+          <button
+            @click="removeFile(i)"
+            class="text-blue-400 hover:text-red-500 transition-colors ml-0.5"
+            title="移除"
+          >✕</button>
+        </div>
+      </div>
+
       <div class="flex gap-2 max-w-3xl mx-auto">
+        <!-- 上传按钮 -->
+        <label
+          class="flex items-center justify-center w-10 h-10 rounded-xl border border-gray-300 hover:bg-gray-50 cursor-pointer transition-colors shrink-0"
+          :class="{ 'opacity-50 pointer-events-none': running }"
+          title="上传数据文件"
+        >
+          <span class="text-lg">📎</span>
+          <input
+            ref="fileInput"
+            type="file"
+            accept=".csv,.xlsx,.xls,.json,.txt,.tsv"
+            class="hidden"
+            @change="onFileSelected"
+            :disabled="running"
+          />
+        </label>
+
         <input
           v-model="input"
           @keydown.enter="send"
@@ -45,6 +80,9 @@
           class="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white rounded-xl px-5 py-2.5 text-sm font-medium transition-colors"
         >发送 ▶</button>
       </div>
+      <p class="text-xs text-gray-400 text-center mt-1.5 max-w-3xl mx-auto">
+        支持上传 CSV、Excel、JSON、TXT 文件。文件仅在当前会话有效，关闭页面后自动清除。
+      </p>
     </footer>
   </div>
 </template>
@@ -62,18 +100,49 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  send: [text: string];
+  send: [text: string, files: File[]];
   toggleFiles: [];
 }>();
 
 const input = ref("");
 const msgContainer = ref<HTMLElement | null>(null);
+const fileInput = ref<HTMLInputElement | null>(null);
+
+// 已上传文件列表（保留 File 对象用于后续上传）
+const uploadedFiles = ref<File[]>([]);
+
+function fileIcon(name: string): string {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  const map: Record<string, string> = { csv: "📊", xlsx: "📈", xls: "📈", json: "📋", txt: "📄", tsv: "📊" };
+  return map[ext] || "📎";
+}
+
+function onFileSelected(e: Event) {
+  const target = e.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+
+  // 限制文件大小 50MB
+  if (file.size > 50 * 1024 * 1024) {
+    alert("文件大小不能超过 50MB");
+    target.value = "";
+    return;
+  }
+
+  uploadedFiles.value.push(file);
+  target.value = ""; // 清除 input，允许重复上传同名文件
+}
+
+function removeFile(index: number) {
+  uploadedFiles.value.splice(index, 1);
+}
 
 function send() {
   const text = input.value.trim();
   if (!text || props.running) return;
-  emit("send", text);
+  emit("send", text, [...uploadedFiles.value]);
   input.value = "";
+  uploadedFiles.value = []; // 发送后清空文件列表
 }
 
 watch(() => props.messages.length, () => {

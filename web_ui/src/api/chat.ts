@@ -46,4 +46,14 @@ export const chatApi = {
     // 通过 query 参数带 token，让浏览器直接触发下载
     return `/api/chats/${chatId}/workspace/download?path=${encodeURIComponent(filePath)}&token=${token}`;
   },
+  /** 上传文件到当前会话 workspace */
+  uploadFile: (chatId: number, file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    return client.post<{ ok: boolean; filename: string; size: number; workspace_path: string }>(
+      `/api/chats/${chatId}/upload`,
+      formData,
+      { headers: { "Content-Type": "multipart/form-data" } },
+    );
+  },
 };

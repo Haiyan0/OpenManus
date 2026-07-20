@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict
 
@@ -199,7 +200,7 @@ async def destroy_session_sandbox(
     user_id: int,
     chat_id: int,
 ) -> None:
-    """销毁 sandbox 容器并清理追踪。"""
+    """销毁 sandbox 容器并清理追踪。同时清空 workspace 目录（用户文件不留痕）。"""
     key = (user_id, chat_id)
     if sandbox is not None:
         try:
@@ -207,6 +208,18 @@ async def destroy_session_sandbox(
         except Exception:
             pass
     _active_sandboxes.pop(key, None)
+
+    # 清理 workspace 目录（用户上传 + Agent 生成产物）
+    ws_dir = (
+        config.web.sandbox_data_root
+        / "users" / str(user_id) / "workspace" / str(chat_id)
+    )
+    if ws_dir.exists():
+        try:
+            shutil.rmtree(str(ws_dir), ignore_errors=True)
+            logger.info(f"Workspace 已清理: {ws_dir}")
+        except Exception:
+            pass
 
 
 def get_sandbox_for_chat(user_id: int, chat_id: int) -> DockerSandbox | None:

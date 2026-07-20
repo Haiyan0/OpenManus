@@ -1,10 +1,12 @@
 """会话 CRUD 路由: /api/chats/*"""
+import os
+import shutil
 from pathlib import Path
 from typing import Any
 
 import jwt as pyjwt
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -216,3 +218,51 @@ async def api_download_workspace_file(
         filename=file_path.name,
         media_type=media_type,
     )
+
+
+# ── 会话文件上传（上传到 workspace，Agent 立即可用）────────
+
+@router.post("/{chat_id}/upload")
+async def api_upload_to_workspace(
+    chat_id: int,
+    file: UploadFile,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """上传文件到当前会话 workspace 目录。
+
+    文件写入 Docker Sandbox 挂载的 workspace 目录，Agent 可立即读取。
+    WebSocket 断开或会话删除时，整个 workspace 目录自动清理。
+    """
+    await get_chat_or_404(db, chat_id, user.id)
+
+    ws_root = (
+        config.web.sandbox_data_root
+        / "users" / str(user.id) / "workspace" / str(chat_id)
+    )
+    ws_root.mkdir(parents=True, exist_ok=True)
+
+    # 安全文件名：保留原始扩展名，去除非 ASCII 以外的不安全字符
+    safe_name = file.filename or "uploaded_file"
+    # 替换路径分隔符和空字符
+    safe_name = safe_name.replace("/", "_").replace("\\", "_").replace("\0", "")
+
+    dest_path = ws_root / safe_name
+    # 同名文件直接覆盖（覆盖旧版）
+    content = await file.read()
+    with open(dest_path, "wb") as f:
+        f.write(content)
+
+    # 同时在 uploads 目录保留一份副本（供 /api/files 兼容）
+    uploads_dir = config.web.sandbox_data_root / "users" / str(user.id) / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+    upload_path = uploads_dir / safe_name
+    with open(upload_path, "wb") as f:
+        f.write(content)
+
+    return JSONResponse({
+        "ok": True,
+        "filename": safe_name,
+        "size": len(content),
+        "workspace_path": f"/workspace/{safe_name}",
+    })
