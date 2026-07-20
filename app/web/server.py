@@ -8,6 +8,7 @@
     /api/chats/*            → 会话 CRUD 路由
     /api/files/*            → 文件管理路由（Task 13）
 """
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, Query
@@ -15,13 +16,26 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import PROJECT_ROOT, config
+from app.logger import logger
 from app.web.auth.router import router as auth_router
 from app.web.chat.router import router as chat_router
 from app.web.chat.ws_handler import handle_chat_ws
 from app.web.files.router import router as files_router
 
 
-app = FastAPI(title="OpenManus Web", version="0.2.0")
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """FastAPI lifespan — 启动/关闭钩子。"""
+    yield  # 启动：什么也不做
+    # 关闭：强制清理所有 Sandbox 容器
+    logger.info("正在清理所有 Sandbox 容器...")
+    from app.web.sandbox.service import shutdown_all_sandboxes
+
+    await shutdown_all_sandboxes()
+    logger.info("所有 Sandbox 容器已清理完毕")
+
+
+app = FastAPI(title="OpenManus Web", version="0.2.0", lifespan=_lifespan)
 
 # ── REST 路由 ────────────────────────────────
 

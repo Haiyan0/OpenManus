@@ -233,3 +233,20 @@ def cleanup_chat_workspace(user_id: int, chat_id: int) -> None:
 def get_sandbox_for_chat(user_id: int, chat_id: int) -> DockerSandbox | None:
     """获取指定会话的活跃 sandbox（不创建）。"""
     return _active_sandboxes.get((user_id, chat_id))
+
+
+async def shutdown_all_sandboxes() -> None:
+    """强制清理所有活跃 Sandbox 容器。
+
+    注册为 FastAPI shutdown 事件处理器，在 uvicorn 收到 SIGINT/SIGTERM 时调用。
+    确保 Ctrl+C 强制关闭服务端后不残留 Docker 容器。
+    """
+    # 复制 dict 避免迭代时修改
+    remaining = dict(_active_sandboxes)
+    _active_sandboxes.clear()
+    for (user_id, chat_id), sandbox in remaining.items():
+        try:
+            await sandbox.cleanup()
+            logger.info(f"Shutdown 清理: user={user_id}, chat={chat_id}")
+        except Exception as exc:
+            logger.warning(f"Shutdown 清理失败 user={user_id} chat={chat_id}: {exc}")
