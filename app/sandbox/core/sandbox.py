@@ -12,7 +12,6 @@ from docker.models.containers import Container
 
 from app.config import SandboxSettings
 from app.sandbox.core.exceptions import SandboxTimeoutError
-from app.sandbox.core.terminal import AsyncDockerizedTerminal
 
 
 class DockerSandbox:
@@ -44,7 +43,6 @@ class DockerSandbox:
         self.volume_bindings = volume_bindings or {}
         self.client = docker.from_env()
         self.container: Optional[Container] = None
-        self.terminal: Optional[AsyncDockerizedTerminal] = None
 
     async def create(self) -> "DockerSandbox":
         """Creates and starts the sandbox container.
@@ -87,14 +85,11 @@ class DockerSandbox:
             # Start container
             await asyncio.to_thread(self.container.start)
 
-            # Initialize terminal
-            self.terminal = AsyncDockerizedTerminal(
-                container["Id"],
-                self.config.work_dir,
-                env_vars={"PYTHONUNBUFFERED": "1"}
-                # Ensure Python output is not buffered
+            # 确保工作目录存在（exec_run 不依赖 PTY terminal）
+            await asyncio.to_thread(
+                self.container.exec_run,
+                f"mkdir -p {self.config.work_dir}",
             )
-            await self.terminal.init()
 
             return self
 
@@ -138,29 +133,37 @@ class DockerSandbox:
         return host_path
 
     async def run_command(self, cmd: str, timeout: Optional[int] = None) -> str:
-        """Runs a command in the sandbox.
+        """在 Sandbox 容器内执行命令（使用非 TTY exec_run，直接获取 stdout）。
 
         Args:
-            cmd: Command to execute.
-            timeout: Timeout in seconds.
+            cmd: 要执行的 shell 命令。
+            timeout: 超时秒数。
 
         Returns:
-            Command output as string.
+            命令的 stdout 输出字符串。
 
         Raises:
-            RuntimeError: If sandbox not initialized or command execution fails.
-            TimeoutError: If command execution times out.
+            RuntimeError: Sandbox 未初始化或命令执行失败。
+            SandboxTimeoutError: 命令执行超时。
         """
-        if not self.terminal:
+        if not self.container:
             raise RuntimeError("Sandbox not initialized")
 
-        try:
-            return await self.terminal.run_command(
-                cmd, timeout=timeout or self.config.timeout
+        effective_timeout = timeout or self.config.timeout
+
+        async def _exec():
+            result = await asyncio.to_thread(
+                self.container.exec_run,
+                cmd,
+                environment={"PYTHONUNBUFFERED": "1"},
             )
-        except TimeoutError:
+            return result.output.decode("utf-8").strip()
+
+        try:
+            return await asyncio.wait_for(_exec(), timeout=effective_timeout)
+        except asyncio.TimeoutError:
             raise SandboxTimeoutError(
-                f"Command execution timed out after {timeout or self.config.timeout} seconds"
+                f"Command execution timed out after {effective_timeout} seconds"
             )
 
     async def read_file(self, path: str) -> str:
@@ -423,17 +426,9 @@ class DockerSandbox:
                 return file_content.read()
 
     async def cleanup(self) -> None:
-        """Cleans up sandbox resources."""
+        """清理 Sandbox 资源。"""
         errors = []
         try:
-            if self.terminal:
-                try:
-                    await self.terminal.close()
-                except Exception as e:
-                    errors.append(f"Terminal cleanup error: {e}")
-                finally:
-                    self.terminal = None
-
             if self.container:
                 try:
                     await asyncio.to_thread(self.container.stop, timeout=5)

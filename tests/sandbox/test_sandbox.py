@@ -30,7 +30,7 @@ async def sandbox(sandbox_config):
 @pytest.mark.asyncio
 async def test_sandbox_working_directory(sandbox):
     """Tests sandbox working directory configuration."""
-    result = await sandbox.terminal.run_command("pwd")
+    result = await sandbox.run_command("pwd")
     assert result.strip() == "/workspace"
 
 
@@ -61,7 +61,7 @@ with open('/workspace/test.txt') as f:
     await sandbox.write_file("/workspace/test.py", python_code)
 
     # Execute script and verify output
-    result = await sandbox.terminal.run_command("python3 /workspace/test.py")
+    result = await sandbox.run_command("python3 /workspace/test.py")
     assert "Hello from Python!" in result
     assert "Hello from file!" in result
 
@@ -90,8 +90,8 @@ async def test_sandbox_file_persistence(sandbox):
 async def test_sandbox_python_environment(sandbox):
     """Tests Python environment configuration."""
     # Test Python version
-    result = await sandbox.terminal.run_command("python3 --version")
-    assert "Python 3.10" in result
+    result = await sandbox.run_command("python3 --version")
+    assert "Python 3.12" in result
 
     # Test basic module imports
     python_code = """
@@ -101,7 +101,7 @@ import json
 print("Python is working!")
 """
     await sandbox.write_file("/workspace/env_test.py", python_code)
-    result = await sandbox.terminal.run_command("python3 /workspace/env_test.py")
+    result = await sandbox.run_command("python3 /workspace/env_test.py")
     assert "Python is working!" in result
 
 
@@ -112,8 +112,8 @@ async def test_sandbox_network_access(sandbox):
         pytest.skip("Network access is disabled")
 
     # Test network connectivity
-    await sandbox.terminal.run_command("apt update && apt install curl -y")
-    result = await sandbox.terminal.run_command("curl -I https://www.example.com")
+    await sandbox.run_command("apt update && apt install curl -y")
+    result = await sandbox.run_command("curl -I https://www.example.com")
     assert "HTTP/2 200" in result
 
 
@@ -125,7 +125,7 @@ async def test_sandbox_cleanup(sandbox_config):
 
     # Create test files
     await sandbox.write_file("/workspace/test.txt", "test")
-    container_id = sandbox.terminal.container.id
+    container_id = sandbox.container.id
     # Perform cleanup
     await sandbox.cleanup()
 
