@@ -154,7 +154,7 @@ class DockerSandbox:
         async def _exec():
             result = await asyncio.to_thread(
                 self.container.exec_run,
-                cmd,
+                ["/bin/sh", "-c", cmd],
                 environment={"PYTHONUNBUFFERED": "1"},
             )
             return result.output.decode("utf-8").strip()
