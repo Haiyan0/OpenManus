@@ -1,4 +1,15 @@
 <template>
+  <!-- ask_human：Agent 向用户提问 -->
+  <div v-if="msg.event_type === 'ask_human'" class="mb-4">
+    <div class="bg-amber-50 border border-amber-200 rounded-2xl rounded-bl-md px-4 py-3 max-w-[85%] shadow-sm">
+      <div class="flex items-center gap-2 mb-2">
+        <span class="text-base">🤔</span>
+        <span class="text-xs font-medium text-amber-700">Agent 向你提问</span>
+      </div>
+      <div class="text-sm text-gray-700 whitespace-pre-wrap" v-html="renderMd(msg.content || '')"></div>
+    </div>
+  </div>
+
   <!-- 用户消息 -->
   <div v-if="msg.role === 'user' && !msg.event_type" class="flex justify-end mb-4">
     <div class="bg-blue-500 text-white rounded-2xl rounded-br-md px-4 py-2.5 max-w-[80%] shadow-sm">

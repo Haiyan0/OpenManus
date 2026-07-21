@@ -7,6 +7,8 @@ export const useChatStore = defineStore("chat", () => {
   const currentChatId = ref<number | null>(null);
   const currentMessages = ref<MessageInfo[]>([]);
   const running = ref(false);
+  // ask_human 交互状态
+  const waitingForHuman = ref(false);
 
   // WebSocket 实例（每个聊天页一个）
   const ws = ref<WebSocket | null>(null);
@@ -58,9 +60,17 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  /** 向 ask_human 发送用户回复 */
+  function respondToHuman(text: string) {
+    if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+      ws.value.send(JSON.stringify({ type: "human_response", content: text }));
+      waitingForHuman.value = false;
+    }
+  }
+
   return {
-    chats, currentChatId, currentMessages, running, ws,
+    chats, currentChatId, currentMessages, running, waitingForHuman, ws,
     loadChats, createChat, deleteChat, loadHistory, loadMoreMessages,
-    connectWS, disconnectWS,
+    connectWS, disconnectWS, respondToHuman,
   };
 });

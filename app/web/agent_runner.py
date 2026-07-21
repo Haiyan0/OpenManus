@@ -196,4 +196,9 @@ async def create_observable_agent(
     if sandbox is not None and hasattr(agent, "set_sandbox"):
         agent.set_sandbox(sandbox, host_workspace=host_workspace)
 
+    # 注入 event_queue → AskHuman（用于前端交互）
+    ask_human = agent.available_tools.get_tool("ask_human")
+    if ask_human and hasattr(ask_human, "event_queue"):
+        ask_human.event_queue = event_queue
+
     return agent

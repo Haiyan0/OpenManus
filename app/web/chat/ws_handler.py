@@ -73,6 +73,17 @@ async def handle_chat_ws(
             while True:
                 # 接收 prompt
                 data = await ws.receive_json()
+
+                # ── ask_human 响应 ──────────────────
+                if data.get("type") == "human_response":
+                    if agent is not None:
+                        ask_human_tool = agent.available_tools.get_tool("ask_human")
+                        if ask_human_tool and hasattr(ask_human_tool, "on_response"):
+                            ask_human_tool.on_response(
+                                data.get("content", "")
+                            )
+                    continue
+                # ── 普通 prompt ──────────────────────
                 if data.get("type") != "prompt" or not data.get("content"):
                     await ws.send_json(
                         {"type": "error", "message": "请发送有效的 prompt"}
@@ -92,7 +103,7 @@ async def handle_chat_ws(
                     sandbox = await create_session_sandbox(
                         user_id, chat_id, network_enabled=network
                     )
-                    # 保存宿主机 workspace 路径（供 DataVisualization npx ts-node 写文件用）
+                    # 保存宿主机 workspace 路径
                     host_ws = str(
                         config.web.sandbox_data_root
                         / "users" / str(user_id) / "workspace" / str(chat_id)

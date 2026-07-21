@@ -32,6 +32,24 @@
 
     <!-- 输入 -->
     <footer class="bg-white border-t border-gray-200 px-4 py-3 shrink-0">
+      <!-- ask_human 回复区 -->
+      <div v-if="waitingForHuman" class="max-w-3xl mx-auto mb-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+        <p class="text-xs text-amber-600 mb-2">🤔 Agent 正在等待你的回复...</p>
+        <div class="flex gap-2">
+          <input
+            v-model="humanInput"
+            @keydown.enter="replyHuman"
+            placeholder="在此输入回复..."
+            class="flex-1 border border-amber-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+          />
+          <button
+            @click="replyHuman"
+            :disabled="!humanInput.trim()"
+            class="bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >回复</button>
+        </div>
+      </div>
+
       <!-- 已上传文件 chips -->
       <div v-if="uploadedFiles.length > 0" class="flex flex-wrap gap-2 mb-2 max-w-3xl mx-auto">
         <div
@@ -97,14 +115,17 @@ const props = defineProps<{
   title: string;
   agentType: string;
   running: boolean;
+  waitingForHuman?: boolean;
 }>();
 
 const emit = defineEmits<{
   send: [text: string, files: File[]];
   toggleFiles: [];
+  sendHumanResponse: [text: string];
 }>();
 
 const input = ref("");
+const humanInput = ref("");
 const msgContainer = ref<HTMLElement | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
 
@@ -143,6 +164,13 @@ function send() {
   emit("send", text, [...uploadedFiles.value]);
   input.value = "";
   uploadedFiles.value = []; // 发送后清空文件列表
+}
+
+function replyHuman() {
+  const text = humanInput.value.trim();
+  if (!text) return;
+  emit("sendHumanResponse", text);
+  humanInput.value = "";
 }
 
 watch(() => props.messages.length, () => {

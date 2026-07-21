@@ -3,28 +3,35 @@ from app.tool.python_execute import PythonExecute
 
 
 class NormalPythonExecute(PythonExecute):
-    """A tool for executing Python code with timeout and safety restrictions."""
+    """数据分析专用 Python 执行工具，支持超时与安全限制。"""
 
     name: str = "python_execute"
-    description: str = """Execute Python code for in-depth data analysis / data report(task conclusion) / other normal task without direct visualization."""
+    description: str = """执行 Python 代码用于深入数据分析、生成报告、数据可视化等任务。"""
+
     parameters: dict = {
         "type": "object",
         "properties": {
             "code_type": {
-                "description": "code type, data process / data report / others",
+                "description": "代码类型: process(数据处理)、report(生成报告)、visualization(生成可视化图表)、others(其他)",
                 "type": "string",
                 "default": "process",
-                "enum": ["process", "report", "others"],
+                "enum": ["process", "report", "visualization", "others"],
             },
             "code": {
                 "type": "string",
-                "description": """Python code to execute.
-# Note
-1. The code should generate a comprehensive text-based report containing dataset overview, column details, basic statistics, derived metrics, timeseries comparisons, outliers, and key insights.
-2. Use print() for all outputs so the analysis (including sections like 'Dataset Overview' or 'Preprocessing Results') is clearly visible and save it also
-3. Save any report / processed files / each analysis result in worksapce directory: {directory}
-4. Data reports need to be content-rich, including your overall analysis process and corresponding data visualization.
-5. You can invode this tool step-by-step to do data analysis from summary to in-depth with data report saved also""".format(
+                "description": """要执行的 Python 代码。
+
+## 注意事项
+1. 使用 print() 输出所有结果，确保分析过程（如"数据概览"、"预处理结果"等）清晰可见
+2. 将处理后的数据和报告文件保存到工作目录: {directory}
+3. 报告需要内容丰富，包含完整的分析过程和对应的数据可视化
+4. 可分步调用此工具，从汇总到深入进行分析
+
+## 可视化生成
+- 使用 matplotlib 或 plotly 生成图表
+- 图表保存为 PNG 或 HTML 文件到 {directory} 目录
+- 用 print() 输出图表文件的完整路径，如 print("图表已保存: {directory}/chart_trend.png")
+- 根据数据特征选择合适的图表类型（折线图适合趋势，柱状图适合对比，饼图适合占比）""".format(
                     directory=config.workspace_root
                 ),
             },

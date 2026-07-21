@@ -123,7 +123,7 @@ class CompanyDataLookup(BaseTool):
                         f"  项目：{project_name}\n"
                         f"  数据文件（共 {len(csv_files)} 个 CSV）：\n"
                         f"{file_lines}\n\n"
-                        f"请使用 NormalPythonExecute（pandas.read_csv）读取上述文件进行数据分析，"
+                        f"请使用 python_execute（pandas.read_csv）读取上述文件进行数据分析，"
                         f"并在分析前告知用户已找到以下本地数据文件：{', '.join(f['name'] for f in csv_files)}"
                     )
 

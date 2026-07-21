@@ -4,7 +4,6 @@ import os
 import sys
 import uuid
 from io import StringIO
-from pathlib import Path
 from typing import Dict, Optional
 
 from app.config import config
@@ -13,7 +12,7 @@ from app.tool.base import BaseTool
 
 
 class PythonExecute(BaseTool):
-    """A tool for executing Python code with timeout and safety restrictions.
+    """Python 代码执行工具。
 
     支持两种执行模式：
     1. Sandbox 模式：代码写入 workspace 的临时 .py 文件 → 容器内 python 执行
@@ -21,13 +20,13 @@ class PythonExecute(BaseTool):
     """
 
     name: str = "python_execute"
-    description: str = "Executes Python code string. Note: Only print outputs are visible, function return values are not captured. Use print statements to see results."
+    description: str = "执行 Python 代码进行数据分析、统计计算和报告生成。使用 print() 输出结果。"
     parameters: dict = {
         "type": "object",
         "properties": {
             "code": {
                 "type": "string",
-                "description": "The Python code to execute.",
+                "description": "要执行的 Python 代码。使用 print() 输出所有结果。使用 pandas 等库进行数据处理，使用 matplotlib/plotly 生成可视化图表。",
             },
         },
         "required": ["code"],
@@ -73,14 +72,7 @@ class PythonExecute(BaseTool):
         return await self._execute_local(code, timeout)
 
     async def _execute_in_sandbox(self, code: str, timeout: int = 30) -> Dict:
-        """在 Docker Sandbox 容器内执行 Python 代码。
-
-        步骤：
-        1. 将代码写入 workspace 下的临时 .py 文件
-        2. 通过 sandbox.run_command("python script.py") 在容器内执行
-        3. 返回 stdout 输出
-        4. 临时文件保留在 workspace 中（用户可通过挂载目录查看）
-        """
+        """在 Docker Sandbox 容器内执行 Python 代码。"""
         script_name = f"_sandbox_script_{uuid.uuid4().hex[:8]}.py"
         container_script_path = os.path.join(self.workspace_dir, script_name)
 
@@ -104,7 +96,7 @@ class PythonExecute(BaseTool):
             }
 
     async def _execute_local(self, code: str, timeout: int = 30) -> Dict:
-        """在本地通过 multiprocessing.Process 执行（原有逻辑，向后兼容）。"""
+        """在本地通过 multiprocessing.Process 执行（向后兼容）。"""
         with multiprocessing.Manager() as manager:
             result = manager.dict({"observation": "", "success": False})
             if isinstance(__builtins__, dict):

@@ -13,7 +13,9 @@
       :title="currentTitle"
       :agentType="currentAgentType"
       :running="chatStore.running"
+      :waitingForHuman="chatStore.waitingForHuman"
       @send="sendPrompt"
+      @send-human-response="sendHumanResponse"
       @toggle-files="showFilesPanel = !showFilesPanel"
     />
     <div v-else class="flex-1 flex items-center justify-center text-gray-400">
@@ -65,6 +67,7 @@ onMounted(async () => {
 
 async function switchChat(id: number) {
   chatStore.currentChatId = id;
+  chatStore.waitingForHuman = false;
   await chatStore.loadHistory(id);
   router.replace(`/chat/${id}`);
 }
@@ -79,6 +82,10 @@ async function createAndEnter(agentType: string, title: string) {
 async function deleteChat(id: number) {
   if (!confirm("确定要删除该会话吗？会话中的消息和文件将被永久清除。")) return;
   await chatStore.deleteChat(id);
+}
+
+async function sendHumanResponse(text: string) {
+  chatStore.respondToHuman(text);
 }
 
 async function sendPrompt(text: string, files: File[] = []) {
@@ -160,6 +167,19 @@ async function sendPrompt(text: string, files: File[] = []) {
         }
       }
     }
+    // ask_human 事件：Agent 在等待用户回复
+    if (evt.type === "ask_human") {
+      chatStore.waitingForHuman = true;
+      chatStore.currentMessages.push({
+        id: Date.now(),
+        role: "assistant",
+        content: evt.content,
+        tool_name: "ask_human",
+        event_type: "ask_human",
+        created_at: new Date().toISOString(),
+      } as any);
+      return;
+    }
     chatStore.currentMessages.push({
       id: Date.now(),
       role: evt.type === "tool_start" || evt.type === "tool_end" ? "tool" : "assistant",
@@ -174,13 +194,18 @@ async function sendPrompt(text: string, files: File[] = []) {
 
     if (evt.type === "done") {
       chatStore.running = false;
+      chatStore.waitingForHuman = false;
       chatStore.disconnectWS();
     }
   };
 
-  ws.onclose = () => { chatStore.running = false; };
+  ws.onclose = () => {
+    chatStore.running = false;
+    chatStore.waitingForHuman = false;
+  };
   ws.onerror = () => {
     chatStore.running = false;
+    chatStore.waitingForHuman = false;
     chatStore.currentMessages.push({
       role: "assistant", content: "连接失败", event_type: "error",
       created_at: new Date().toISOString(), id: Date.now(), tool_name: null
