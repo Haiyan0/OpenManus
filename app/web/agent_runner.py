@@ -9,6 +9,7 @@ from typing import Any
 
 from app.agent.manus import Manus
 from app.agent.data_analysis import DataAnalysis
+from app.agent.quick_query import QuickQuery
 from app.schema import ToolCall
 
 
@@ -160,6 +161,77 @@ class ObservableDataAnalysis(DataAnalysis):
             raise
 
 
+# ── ObservableQuickQuery ───────────────────────────────
+
+
+class ObservableQuickQuery(QuickQuery):
+    """QuickQuery 的事件注入子类。
+
+    与 ObservableManus / ObservableDataAnalysis 完全相同的 emit 逻辑。
+    """
+
+    event_queue: asyncio.Queue | None = None
+
+    async def step(self) -> str:
+        await _emit(
+            self.event_queue,
+            "step_start",
+            {"step": self.current_step + 1, "max_steps": self.max_steps},
+        )
+        return await super().step()
+
+    async def think(self) -> bool:
+        should_act = await super().think()
+        last_msg = self.messages[-1] if self.messages else None
+        thinking_content = ""
+        tool_calls_data: list[dict] = []
+
+        if last_msg and last_msg.role == "assistant":
+            thinking_content = last_msg.content or ""
+            if last_msg.tool_calls:
+                tool_calls_data = [
+                    {"name": tc.function.name, "arguments": tc.function.arguments}
+                    for tc in last_msg.tool_calls
+                ]
+
+        if thinking_content or tool_calls_data:
+            await _emit(
+                self.event_queue,
+                "thinking",
+                {"content": thinking_content, "tool_calls": tool_calls_data},
+            )
+
+        if not should_act and thinking_content and not tool_calls_data:
+            await _emit(self.event_queue, "assistant", {"content": thinking_content})
+
+        return should_act
+
+    async def execute_tool(self, command: ToolCall) -> str:
+        await _emit(
+            self.event_queue,
+            "tool_start",
+            {"tool": command.function.name, "args": command.function.arguments},
+        )
+        result = await super().execute_tool(command)
+        ok = not str(result).startswith("Error:")
+        await _emit(
+            self.event_queue,
+            "tool_end",
+            {"tool": command.function.name, "result": str(result), "ok": ok},
+        )
+        return result
+
+    async def run(self, request: str | None = None) -> str:
+        try:
+            result = await super().run(request)
+            await _emit(self.event_queue, "done", {"reason": "completed"})
+            return result
+        except Exception as exc:
+            await _emit(self.event_queue, "error", {"message": str(exc)})
+            await _emit(self.event_queue, "done", {"reason": "error"})
+            raise
+
+
 # ── Agent 工厂 ─────────────────────────────────────────
 
 
@@ -187,6 +259,8 @@ async def create_observable_agent(
         agent = await ObservableManus.create()
     elif agent_type == "data_analysis":
         agent = ObservableDataAnalysis()
+    elif agent_type == "quick_query":
+        agent = ObservableQuickQuery()
     else:
         raise ValueError(f"不支持的 agent_type: {agent_type}")
 
