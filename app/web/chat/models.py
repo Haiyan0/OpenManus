@@ -7,7 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.web.database import Base
 
 
-AGENT_TYPES = {"general", "data_analysis"}
+AGENT_TYPES = {"general", "data_analysis", "quick_query"}
 CHAT_STATUS = {"active", "archived"}
 
 
