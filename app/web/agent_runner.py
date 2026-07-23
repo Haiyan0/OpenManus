@@ -240,7 +240,7 @@ async def create_observable_agent(
     event_queue: asyncio.Queue,
     sandbox: object | None = None,
     host_workspace: str = "",
-) -> Manus | DataAnalysis:
+) -> Manus | DataAnalysis | QuickQuery:
     """根据 agent_type 创建已初始化的 Observable Agent 实例。
 
     Args:

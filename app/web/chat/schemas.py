@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatCreate(BaseModel):
-    agent_type: str = Field(..., description="general | data_analysis")
+    agent_type: str = Field(..., description="general | data_analysis | quick_query")
     title: str | None = Field(None, max_length=200)
 
 

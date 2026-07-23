@@ -72,5 +72,7 @@ NEXT_STEP_PROMPT = """基于用户需求，分解问题并用不同工具逐步�
 
 # 可视化实现指引
 - 使用 matplotlib 或 plotly 生成图表，保存为 PNG 或 HTML 文件到工作目录
-- 图表保存到 /workspace 目录下（如 /workspace/chart_xxx.png）
-- 使用 print() 输出图表文件路径，方便用户查看"""
+- 图表保存到 /workspace/{本次工作目标} 目录下（如 /workspace/分析公司xx业务项目/chart_xxx.png）
+- 总结报告内容需生成一个markdown文件，保存到 /workspace 目录下（如 /workspace/report.md）
+- 使用 print() 输出图表文件和markdown路径，方便用户查看
+"""

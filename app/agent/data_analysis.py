@@ -8,6 +8,8 @@ from app.logger import logger
 from app.prompt.visualization import NEXT_STEP_PROMPT, SYSTEM_PROMPT
 from app.tool import Terminate, ToolCollection
 from app.tool.ask_human import AskHuman
+from app.tool.chart_visualization.chart_prepare import VisualizationPrepare
+from app.tool.chart_visualization.data_visualization import DataVisualization
 from app.tool.chart_visualization.python_execute import NormalPythonExecute
 from app.tool.company_data_lookup import CompanyDataLookup
 
@@ -38,6 +40,8 @@ class DataAnalysis(ToolCallAgent):
         default_factory=lambda: ToolCollection(
             CompanyDataLookup(),
             NormalPythonExecute(),
+            VisualizationPrepare(),
+            DataVisualization(),
             AskHuman(),
             Terminate(),
         )
