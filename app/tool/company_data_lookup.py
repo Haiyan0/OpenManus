@@ -245,7 +245,7 @@ class CompanyDataLookup(BaseTool):
         if action == "list_tables":
             return await asyncio.to_thread(self._list_tables)
         elif action == "query":
-            return await self._execute_query(query_or_sql)
+            return await asyncio.to_thread(self._execute_query, query_or_sql)
         else:
             return self.fail_response(
                 f"不支持的 action: '{action}'，可选值为 'list_tables' 或 'query'"
