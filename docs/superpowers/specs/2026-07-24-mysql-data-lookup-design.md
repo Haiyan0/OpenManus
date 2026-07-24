@@ -48,18 +48,39 @@ company_data_lookup
 ① company_data_lookup(action="list_tables", query_or_sql="华南区Q3销售趋势")
   │ MySQL: information_schema.TABLES + information_schema.COLUMNS
   ▼ 返回: 格式化的数据字典（表名+注释+字段名+类型+注释）
-② Agent 思考 → 发现 sales_order 表有 region/amount/created_at 字段
+② Agent **反驳自省** → 逐一比对用户需求的数据维度与现有表字段的覆盖度
+  │ ┌─ 覆盖充分 → 继续下一步
+  │ ├─ 部分缺失 → 告知用户哪些维度缺失、能做/不能做什么 → 调用 ask_human 确认是否继续
+  │ └─ 完全无法支撑 → 直接告知用户原因，调用 terminate 结束，不强行执行
   │
-③ company_data_lookup(action="query", query_or_sql="SELECT ... FROM sales_order WHERE region='华南' AND year(created_at)=2024 AND quarter(created_at)=3")
+③ Agent 确认可继续后 → 编写 SQL
+  │
+④ company_data_lookup(action="query", query_or_sql="SELECT ... FROM sales_order WHERE region='华南' AND year(created_at)=2024 AND quarter(created_at)=3")
   │ 安全校验 → 执行 SQL → pandas 写 CSV → 返回摘要+预览
   ▼
-④ python_execute(code="df = pd.read_csv('/workspace/_query_result_xxx.csv') ...")
+⑤ python_execute(code="df = pd.read_csv('/workspace/_query_result_xxx.csv') ...")
   │ 后续分析流程完全不变
   ▼
-⑤ 分析结果 + 可视化 → 返回用户
+⑥ 分析结果 + 可视化 → 返回用户
 ```
 
-### 2.3 安全层
+### 2.3 反驳自省阶段（关键）
+
+`list_tables` 返回数据字典后，Agent **必须**进行反驳自省，不可跳过：
+
+1. **需求拆解**：将用户的分析需求拆解为数据维度清单（时间维度、地域维度、指标维度、分类维度等）
+2. **字段匹配**：逐一比对每个数据维度是否在现有表结构中能找到对应字段
+3. **覆盖度判定**：
+
+   | 覆盖度 | 处理方式 |
+   |--------|---------|
+   | **完全覆盖** | 继续编写 SQL，进入查询阶段 |
+   | **部分缺失** | 明确告知用户"现有数据有 X 但没有 Y，因此我可以分析 A，但无法分析 B"。调用 `ask_human` 询问用户是否在当前约束下继续，或建议补充数据 |
+   | **完全无法支撑** | 直接告知用户无法完成的原因（如"数据库中没有任何销售相关的表"），调用 `terminate` 结束，**绝不强行执行** |
+
+4. **原则**：宁可拒绝也不乱做。数据不足时强行分析会产出误导性的结论，比不做更差。
+
+### 2.4 安全层
 
 `action="query"` 执行前强制校验：
 
@@ -259,6 +280,57 @@ async def _execute_query(self, sql: str) -> ToolResult:
 | `query` 返回 0 行 | 正常返回，提示 "查询返回 0 行，请检查过滤条件" |
 | 不安全 SQL 被拒绝 | 返回明确的安全策略提示 |
 
+### 3.5 Agent 提示词变更
+
+为将反驳自省阶段固化到 Agent 行为中，需更新 DataAnalysis 和 QuickQuery 的系统提示词。
+
+**`app/prompt/visualization.py`（DataAnalysis）**：
+
+将第 7-8 行的旧描述：
+```
+2. 公司数据目录: company_data_resource/；用户提到公司/企业/业务数据分析时，优先调用 company_data_lookup 工具检查是否有匹配的本地 CSV 数据
+3. 如果 company_data_lookup 返回了匹配的数据文件，先告知用户找到了哪些文件，然后自动用 python_execute (pandas.read_csv) 加载并分析
+```
+
+替换为：
+```
+2. 数据库查询工具: company_data_lookup；用户提到公司/企业/业务数据分析时，优先使用此工具查询数据字典，确认数据是否存在
+
+3. company_data_lookup 使用流程：
+   a. 先调用 action="list_tables" 获取数据库全部表结构（表名、字段名、字段类型、注释）
+   b. **反驳自省**（必须执行，不可跳过）：
+      - 将用户的分析需求拆解为数据维度清单
+      - 逐一比对清单中每个维度是否在现有表字段中有对应
+      - 覆盖充分 → 继续编写 SQL
+      - 部分缺失 → 调用 ask_human 告知用户"现有数据能分析 X，但缺少 Y 维度，无法分析 Z"，询问用户是否在当前约束下继续
+      - 完全无法支撑 → 直接告知用户原因，调用 terminate 结束，**绝不强行分析**
+   c. 确认可继续后，基于表结构编写精准的 SELECT SQL，调用 action="query" 执行
+   d. 查询结果会保存为 CSV 文件到工作目录，用 python_execute (pandas.read_csv) 加载并分析
+```
+
+**`app/prompt/quick_query.py`（QuickQuery）**：
+
+将第 22-24 行的旧描述：
+```
+2. 公司数据目录: company_data_resource/；用户提到公司/企业/业务数据分析时，
+   优先调用 company_data_lookup 工具检查是否有匹配的本地 CSV 数据
+3. 如果 company_data_lookup 返回了匹配的数据文件，先告知用户找到了哪些文件，
+   然后自动用 python_execute (pandas.read_csv) 加载并分析
+```
+
+替换为：
+```
+2. 数据库查询工具: company_data_lookup；用户提到公司/企业/业务数据查询时，优先使用此工具
+3. company_data_lookup 使用流程：
+   a. 先调用 action="list_tables" 获取数据库全部表结构
+   b. **反驳自省**（必须执行）：
+      - 逐一比对用户需要的数据维度与现有表字段
+      - 数据不足时调用 ask_human 告知用户，不要强行查询
+      - 完全无法支撑时直接 terminate
+   c. 确认可继续后编写 SELECT SQL，调用 action="query" 执行
+   d. 查询结果 CSV 用 python_execute 读取并计算
+```
+
 ---
 
 ## 4. 文件变更清单
@@ -269,6 +341,8 @@ async def _execute_query(self, sql: str) -> ToolResult:
 | `app/config.py` | 修改 | `WebSettings` 新增 `data_lookup_mode: str = "local"` 字段 |
 | `config/config.toml` | 修改 | `[web]` 段新增 `data_lookup_mode = "mysql"` |
 | `config/config.example.toml` | 修改 | `[web]` 段新增 `data_lookup_mode` 注释说明 |
+| `app/prompt/visualization.py` | 修改 | DataAnalysis 系统提示词替换公司数据段落，加入反驳自省流程 |
+| `app/prompt/quick_query.py` | 修改 | QuickQuery 系统提示词替换公司数据段落，加入反驳自省流程 |
 | `requirements.txt` | 审查 | 确认 `pymysql` 已在依赖中（或新增） |
 
 **不需要改的文件**：
