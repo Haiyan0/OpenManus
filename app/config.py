@@ -117,6 +117,11 @@ class WebSettings(BaseModel):
     jwt_secret_key: str = Field(..., description="JWT 签名密钥")
     jwt_expire_hours: int = Field(24, description="JWT 有效期（小时）")
 
+    data_lookup_mode: str = Field(
+        default="local",
+        description='数据查询模式: "local"=本地CSV目录, "mysql"=MySQL实时查询',
+    )
+
     sandbox_data_root: Path = Field(
         default=Path("C:/Data/openmanus"),
         description="用户数据根目录（sandbox 挂载点）",

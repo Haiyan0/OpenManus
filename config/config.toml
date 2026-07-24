@@ -123,6 +123,9 @@ mysql_user = "liudaichuang"
 mysql_password = "123456"
 mysql_database = "openmanus_web"
 
+# 数据查询模式: "local" = 本地 company_data_resource 目录, "mysql" = MySQL 实时查询
+data_lookup_mode = "mysql"
+
 jwt_secret_key = "XqoUjI--Rn1lQdKqrdqgC3jACS-knBWxSDQO4gtB3gg"
 jwt_expire_hours = 24
 
