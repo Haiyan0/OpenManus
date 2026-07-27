@@ -9,21 +9,14 @@ import asyncio
 
 import jwt as pyjwt
 from fastapi import WebSocket, WebSocketDisconnect
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import config
 from app.logger import logger
 from app.web.agent_runner import create_observable_agent
-from app.web.auth.models import User
 from app.web.auth.service import decode_access_token
-from app.web.chat.models import Chat
 from app.web.chat.service import get_chat_or_404, save_message
 from app.web.database import AsyncSessionLocal
-from app.web.sandbox.service import (
-    create_session_sandbox,
-    destroy_session_sandbox,
-    ensure_user_directories,
-)
+from app.web.sandbox.service import create_session_sandbox, destroy_session_sandbox
 
 
 async def handle_chat_ws(
@@ -64,7 +57,7 @@ async def handle_chat_ws(
         sandbox = None
         agent = None
         agent_task = None
-        host_ws = ""   # 宿主机隔离 workspace 目录
+        host_ws = ""  # 宿主机隔离 workspace 目录
 
         try:
             # ── 多轮对话循环 ──────────────────────
@@ -79,23 +72,17 @@ async def handle_chat_ws(
                     if agent is not None:
                         ask_human_tool = agent.available_tools.get_tool("ask_human")
                         if ask_human_tool and hasattr(ask_human_tool, "on_response"):
-                            ask_human_tool.on_response(
-                                data.get("content", "")
-                            )
+                            ask_human_tool.on_response(data.get("content", ""))
                     continue
                 # ── 普通 prompt ──────────────────────
                 if data.get("type") != "prompt" or not data.get("content"):
-                    await ws.send_json(
-                        {"type": "error", "message": "请发送有效的 prompt"}
-                    )
+                    await ws.send_json({"type": "error", "message": "请发送有效的 prompt"})
                     return
 
                 prompt_text = data["content"]
 
                 # 持久化用户消息
-                await save_message(
-                    db, chat_id, role="user", content=prompt_text
-                )
+                await save_message(db, chat_id, role="user", content=prompt_text)
 
                 # ── Sandbox（首次或沙箱已被清理时创建）──
                 network = chat.agent_type == "general"
@@ -106,7 +93,10 @@ async def handle_chat_ws(
                     # 保存宿主机 workspace 路径
                     host_ws = str(
                         config.web.sandbox_data_root
-                        / "users" / str(user_id) / "workspace" / str(chat_id)
+                        / "users"
+                        / str(user_id)
+                        / "workspace"
+                        / str(chat_id)
                     )
                     logger.info(
                         f"Sandbox 就绪: user={user_id}, chat={chat_id}, "
@@ -120,7 +110,9 @@ async def handle_chat_ws(
                     except Exception:
                         pass
                 agent = await create_observable_agent(
-                    chat.agent_type, event_queue, sandbox=sandbox,
+                    chat.agent_type,
+                    event_queue,
+                    sandbox=sandbox,
                     host_workspace=str(host_ws),
                 )
 
@@ -131,34 +123,52 @@ async def handle_chat_ws(
 
                 agent_task = asyncio.create_task(run_agent())
 
+                # ── 并发 WS reader：投递 ask_human 回复，监听断连 ──
+                ws_stop = asyncio.Event()
+                reader_task = asyncio.create_task(
+                    route_human_responses(ws, agent, ws_stop)
+                )
+
                 # ── 事件推流 + 持久化循环 ──────────
-                while True:
-                    try:
-                        event = await asyncio.wait_for(event_queue.get(), timeout=30)
-                    except asyncio.TimeoutError:
+                try:
+                    while not ws_stop.is_set():
                         try:
-                            await ws.send_json({"type": "heartbeat"})
-                        except Exception:
+                            event = await asyncio.wait_for(
+                                event_queue.get(), timeout=30
+                            )
+                        except asyncio.TimeoutError:
+                            if ws_stop.is_set():
+                                break
+                            try:
+                                await ws.send_json({"type": "heartbeat"})
+                            except Exception:
+                                break
+                            continue
+                        if event is None:
                             break
-                        continue
-                    if event is None:
-                        break
 
-                    # 持久化到 MySQL
-                    try:
-                        await save_message(
-                            db,
-                            chat_id=chat_id,
-                            role=_event_role(event),
-                            content=event.get("content"),
-                            event_type=event["type"],
-                            tool_name=event.get("tool"),
-                            tool_args=_parse_args(event.get("args")),
-                        )
-                    except Exception as db_err:
-                        logger.warning(f"消息持久化失败: {db_err}")
+                        # 持久化到 MySQL
+                        try:
+                            await save_message(
+                                db,
+                                chat_id=chat_id,
+                                role=_event_role(event),
+                                content=event.get("content"),
+                                event_type=event["type"],
+                                tool_name=event.get("tool"),
+                                tool_args=_parse_args(event.get("args")),
+                            )
+                        except Exception as db_err:
+                            logger.warning(f"消息持久化失败: {db_err}")
 
-                    await ws.send_json(event)
+                        await ws.send_json(event)
+                finally:
+                    if not reader_task.done():
+                        reader_task.cancel()
+                        try:
+                            await reader_task
+                        except (asyncio.CancelledError, Exception):
+                            pass
 
                 await agent_task
 
@@ -169,9 +179,7 @@ async def handle_chat_ws(
         except Exception as exc:
             logger.error(f"WS 错误: {exc}")
             try:
-                await ws.send_json(
-                    {"type": "error", "message": f"服务器错误: {str(exc)}"}
-                )
+                await ws.send_json({"type": "error", "message": f"服务器错误: {str(exc)}"})
             except Exception:
                 pass
         finally:
@@ -207,7 +215,36 @@ def _parse_args(raw_args) -> dict | None:
     if isinstance(raw_args, str):
         try:
             import json
+
             return json.loads(raw_args)
         except (json.JSONDecodeError, TypeError):
             return {"raw": raw_args}
     return {"raw": str(raw_args)}
+
+
+async def route_human_responses(
+    ws: WebSocket, agent, stop_event: asyncio.Event
+) -> None:
+    """并发读取 WS，把 human_response 投递给 agent 的 ask_human。
+
+    Bug4 修复：原先内层事件泵只 event_queue.get + ws.send_json，
+    从不 ws.receive_json，导致 ask_human 阻塞期间用户的回复无法投递，
+    future 永不 resolve → 双向死锁。
+
+    本协程与事件泵并发运行：
+    - 收到 human_response → 调 ask_human.on_response(content)
+    - WS 断开 → 置 stop_event，让事件泵退出
+    """
+    try:
+        while True:
+            data = await ws.receive_json()
+            if data.get("type") == "human_response" and agent is not None:
+                ask_human_tool = agent.available_tools.get_tool("ask_human")
+                if ask_human_tool and hasattr(ask_human_tool, "on_response"):
+                    ask_human_tool.on_response(data.get("content", ""))
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.info(f"human_response reader 退出: {exc}")
+    finally:
+        stop_event.set()

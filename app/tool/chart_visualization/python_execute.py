@@ -1,4 +1,5 @@
 from app.config import config
+from app.tool.base import ToolResult
 from app.tool.python_execute import PythonExecute
 
 
@@ -40,4 +41,21 @@ class NormalPythonExecute(PythonExecute):
     }
 
     async def execute(self, code: str, code_type: str | None = None, timeout=30):
-        return await super().execute(code, timeout)
+        """执行 Python 代码，返回 ToolResult。
+
+        Bug1：stdout 全量进 ToolResult.system（不截断，由 ToolCallAgent
+        以 system message 形式注入下一轮 think），output 只留短摘要，
+        使模型能基于完整数据回答、无需复述被截断的 observation。
+        """
+        raw = await super().execute(code, timeout)
+        observation = raw.get("observation", "")
+        success = raw.get("success", False)
+
+        if not success:
+            return ToolResult(error=observation)
+
+        n = len(observation)
+        return ToolResult(
+            output=f"脚本执行成功，stdout 已载入 system（{n} 字符）",
+            system=observation,
+        )

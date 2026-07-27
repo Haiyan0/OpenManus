@@ -75,6 +75,10 @@ class QuickQuery(ToolCallAgent):
             if hasattr(tool, "workspace_dir") and workspace:
                 tool.workspace_dir = workspace
                 logger.debug(f"Workspace 已注入工具: {tool.name} → {workspace}")
+            # 宿主机挂载源目录（CompanyDataLookup 写 CSV 用，容器经 bind mount 可见）
+            if hasattr(tool, "host_workspace_dir") and host_workspace:
+                tool.host_workspace_dir = host_workspace
+                logger.debug(f"HostWorkspace 已注入工具: {tool.name} → {host_workspace}")
             # 修正发给 LLM 的工具描述中的宿主机路径 → 容器内路径
             if hasattr(tool, "parameters") and isinstance(tool.parameters, dict):
                 code_desc = (
@@ -83,7 +87,7 @@ class QuickQuery(ToolCallAgent):
                     .get("description", "")
                 )
                 if code_desc and str(config.workspace_root) in code_desc:
-                    tool.parameters["properties"]["code"]["description"] = (
-                        code_desc.replace(str(config.workspace_root), workspace)
-                    )
+                    tool.parameters["properties"]["code"][
+                        "description"
+                    ] = code_desc.replace(str(config.workspace_root), workspace)
                     logger.debug(f"ToolDesc 已更新: {tool.name} → {workspace}")

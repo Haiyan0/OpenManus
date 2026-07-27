@@ -36,21 +36,36 @@ class ToolCallAgent(ReActAgent):
     max_steps: int = 30
     max_observe: Optional[Union[int, bool]] = None
 
+    # 工具返回的 ToolResult.system 数据通道（Bug1）。
+    # 上一轮 act() 的工具把全量数据（如 python stdout）放进 system，
+    # 下一轮 think() 注入为 system message，不受 max_observe 截断，
+    # 模型可直接基于完整数据回答，无需复述被截断的 observation。
+    pending_systems: List[str] = Field(default_factory=list)
+
     async def think(self) -> bool:
         """Process current state and decide next actions using tools"""
         if self.next_step_prompt:
             user_msg = Message.user_message(self.next_step_prompt)
             self.messages += [user_msg]
 
+        # 组装 system messages：系统提示词 + 上一轮工具收集的 system 数据
+        system_msgs: list[Message] = []
+        if self.system_prompt:
+            system_msgs.append(Message.system_message(self.system_prompt))
+        if self.pending_systems:
+            system_msgs.append(
+                Message.system_message(
+                    "# 工具返回的完整数据（请直接据此回答，不要复述原始内容）\n"
+                    + "\n\n".join(self.pending_systems)
+                )
+            )
+            self.pending_systems = []
+
         try:
             # Get response with tool options
             response = await self.llm.ask_tool(
                 messages=self.messages,
-                system_msgs=(
-                    [Message.system_message(self.system_prompt)]
-                    if self.system_prompt
-                    else None
-                ),
+                system_msgs=(system_msgs if system_msgs else None),
                 tools=self.available_tools.to_params(),
                 tool_choice=self.tool_choices,
             )
@@ -182,6 +197,12 @@ class ToolCallAgent(ReActAgent):
             # Execute the tool
             logger.info(f"🔧 Activating tool: '{name}'...")
             result = await self.available_tools.execute(name=name, tool_input=args)
+
+            # 收集 ToolResult.system（全量数据通道，Bug1）
+            # 模型在下一轮 think() 以 system message 形式收到，不受 max_observe 截断
+            system_data = getattr(result, "system", None)
+            if system_data:
+                self.pending_systems.append(str(system_data))
 
             # Handle special tools
             await self._handle_special_tool(name=name, result=result)

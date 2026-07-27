@@ -8,9 +8,9 @@
 
 import asyncio
 import os
+import posixpath
 import re
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from app.config import PROJECT_ROOT, config
@@ -22,8 +22,16 @@ from app.tool.base import BaseTool, ToolResult
 
 # 黑名单关键字：出现任何一个即拒绝执行
 _DANGEROUS_SQL_KEYWORDS = {
-    "DROP", "TRUNCATE", "ALTER", "CREATE", "INSERT",
-    "UPDATE", "DELETE", "GRANT", "REVOKE", "REPLACE",
+    "DROP",
+    "TRUNCATE",
+    "ALTER",
+    "CREATE",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "GRANT",
+    "REVOKE",
+    "REPLACE",
 }
 
 # 单次查询最大返回行数（SQL 无 LIMIT 时自动注入）
@@ -77,7 +85,10 @@ class CompanyDataLookup(BaseTool):
     # ── Sandbox 注入属性 ────────────────────────────────────
     # 由 Agent.set_sandbox() 遍历 available_tools 自动注入
     sandbox: Optional[object] = None
+    # 容器内工作目录（sandbox 模式为 /workspace，告知模型用此路径）
     workspace_dir: str = ""
+    # 宿主机挂载源目录（sandbox 模式下 CSV 实际写入此处，容器经 bind mount 可见）
+    host_workspace_dir: str = ""
 
     # 公司数据资源目录（local 模式使用，相对于项目根目录）
     DATA_DIR: str = "company_data_resource"
@@ -133,8 +144,7 @@ class CompanyDataLookup(BaseTool):
         if not data_root.exists() or not data_root.is_dir():
             logger.warning(f"公司数据目录不存在: {data_root}")
             return self.fail_response(
-                f"公司数据目录 '{self.DATA_DIR}' 不存在或不可访问。"
-                f"请使用常规数据分析流程，直接通过用户提供的文件路径读取数据。"
+                f"公司数据目录 '{self.DATA_DIR}' 不存在或不可访问。" f"请使用常规数据分析流程，直接通过用户提供的文件路径读取数据。"
             )
 
         query_lower = query.lower()
@@ -144,8 +154,7 @@ class CompanyDataLookup(BaseTool):
             if not companies:
                 logger.warning(f"公司数据目录为空: {data_root}")
                 return self.fail_response(
-                    f"公司数据目录 '{self.DATA_DIR}' 下没有企业数据。"
-                    f"请使用常规数据分析流程。"
+                    f"公司数据目录 '{self.DATA_DIR}' 下没有企业数据。" f"请使用常规数据分析流程。"
                 )
 
             company_no_project_matches = []
@@ -157,9 +166,7 @@ class CompanyDataLookup(BaseTool):
 
                 logger.info(f"命中企业: {company_name}")
 
-                projects = [
-                    d for d in sorted(company_dir.iterdir()) if d.is_dir()
-                ]
+                projects = [d for d in sorted(company_dir.iterdir()) if d.is_dir()]
                 for project_dir in projects:
                     project_name = project_dir.name
 
@@ -183,8 +190,7 @@ class CompanyDataLookup(BaseTool):
                         )
 
                     file_lines = "\n".join(
-                        f"  - {f['name']}（路径: {f['path']}）"
-                        for f in csv_files
+                        f"  - {f['name']}（路径: {f['path']}）" for f in csv_files
                     )
                     output_message = (
                         f"在 company_data_resource 中发现匹配的公司数据：\n"
@@ -269,9 +275,7 @@ class CompanyDataLookup(BaseTool):
         try:
             import pymysql
         except ImportError:
-            raise ImportError(
-                "pymysql 未安装，请执行: pip install pymysql"
-            )
+            raise ImportError("pymysql 未安装，请执行: pip install pymysql")
 
         try:
             conn = pymysql.connect(
@@ -335,12 +339,12 @@ class CompanyDataLookup(BaseTool):
 
             if not rows:
                 return self.fail_response(
-                    f"数据库 '{config.web.mysql_database}' 中未找到任何用户表。"
-                    f"请确认数据库中已创建业务数据表。"
+                    f"数据库 '{config.web.mysql_database}' 中未找到任何用户表。" f"请确认数据库中已创建业务数据表。"
                 )
 
             # 按表分组
             from collections import OrderedDict
+
             tables: dict[str, dict] = OrderedDict()
             for row in rows:
                 tname = row["TABLE_NAME"]
@@ -353,8 +357,7 @@ class CompanyDataLookup(BaseTool):
 
             # 格式化输出
             lines = [
-                f"📊 数据库: {config.web.mysql_database}"
-                f" | 共 {len(tables)} 张业务表",
+                f"📊 数据库: {config.web.mysql_database}" f" | 共 {len(tables)} 张业务表",
                 "",
             ]
 
@@ -396,10 +399,7 @@ class CompanyDataLookup(BaseTool):
             return self.fail_response(str(e))
         except Exception as e:
             logger.error(f"数据字典查询失败: {e}", exc_info=True)
-            return self.fail_response(
-                f"查询数据字典时发生错误: {e}\n"
-                f"请检查数据库连接和权限。"
-            )
+            return self.fail_response(f"查询数据字典时发生错误: {e}\n" f"请检查数据库连接和权限。")
         finally:
             if conn:
                 conn.close()
@@ -427,13 +427,15 @@ class CompanyDataLookup(BaseTool):
         is_valid, result = self._validate_sql(sql)
         if not is_valid:
             return self.fail_response(
-                f"SQL 安全校验未通过: {result}\n"
-                f"仅允许执行 SELECT 查询，请修改 SQL 语句后重试。"
+                f"SQL 安全校验未通过: {result}\n" f"仅允许执行 SELECT 查询，请修改 SQL 语句后重试。"
             )
         safe_sql = result  # result 可能是修改后的 SQL（追加了 LIMIT）
 
-        # ── 2. 解析 workspace 路径 ────────────────────────
-        ws = self.workspace_dir if self.workspace_dir else str(config.workspace_root)
+        # ── 2. 解析 CSV 路径 ────────────────────────────────
+        # sandbox 模式：写宿主挂载源、告知容器路径；CLI 模式：同一本地路径
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        csv_filename = f"_query_result_{timestamp}.csv"
+        csv_path, tell_path = self._resolve_csv_paths(csv_filename)
 
         # ── 3. 执行查询 ──────────────────────────────────
         conn = None
@@ -452,9 +454,7 @@ class CompanyDataLookup(BaseTool):
         except Exception as e:
             logger.error(f"SQL 执行失败: {e}")
             return self.fail_response(
-                f"SQL 执行失败: {e}\n"
-                f"SQL 语句:\n{safe_sql}\n\n"
-                f"请修正 SQL 后重试。"
+                f"SQL 执行失败: {e}\n" f"SQL 语句:\n{safe_sql}\n\n" f"请修正 SQL 后重试。"
             )
         finally:
             if conn:
@@ -467,9 +467,11 @@ class CompanyDataLookup(BaseTool):
                 f"请检查过滤条件是否正确，或调用 list_tables 确认表中是否有数据。"
             )
 
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_filename = f"_query_result_{timestamp}.csv"
-        csv_path = os.path.join(ws, csv_filename)
+        # 确保宿主机写入目录存在（bind mount 源目录可能尚未创建）
+        try:
+            os.makedirs(os.path.dirname(csv_path), exist_ok=True)
+        except Exception as e:
+            logger.warning(f"创建 CSV 目录失败: {csv_path}: {e}")
 
         try:
             df.to_csv(csv_path, index=False, encoding="utf-8-sig")
@@ -484,21 +486,46 @@ class CompanyDataLookup(BaseTool):
         except Exception:
             preview = "(预览生成失败)"
 
-        logger.info(
-            f"SQL 查询成功: {len(df)} 行 {len(col_names)} 列 → {csv_path}"
-        )
+        logger.info(f"SQL 查询成功: {len(df)} 行 {len(col_names)} 列 → {csv_path}")
 
         return ToolResult(
             output=(
                 f"查询成功：返回 {len(df):,} 行，{len(col_names)} 列。\n"
                 f"列名: {', '.join(col_names)}\n"
-                f"数据已保存至: {csv_path}\n\n"
+                f"数据已保存至: {tell_path}\n\n"
                 f"前5行预览:\n{preview}\n\n"
-                f"请使用 python_execute (pandas.read_csv('{csv_path}')) 读取该文件继续分析。"
+                f"请使用 python_execute (pandas.read_csv('{tell_path}')) 读取该文件继续分析。"
             ),
         )
 
-    # ═══════════════════════════════════════════════════════════
+    # ── 路径解析 ──────────────────────────────────────────
+
+    def _resolve_csv_paths(self, csv_filename: str) -> tuple[str, str]:
+        """解析查询结果 CSV 的「宿主机写入路径」与「告知模型的路径」。
+
+        sandbox 模式：CSV 写到宿主机挂载源目录（host_workspace_dir），
+        容器经 bind mount 在 workspace_dir（/workspace）可见；告知模型
+        容器路径，让容器内 python_execute 能 read_csv。
+
+        无 sandbox（CLI）模式：写路径与告知路径一致，均落在 workspace_dir
+        （或回退到 config.workspace_root）。
+
+        Returns:
+            (host_write_path, tell_path)
+        """
+        if self.sandbox is not None and self.host_workspace_dir:
+            host_path = os.path.join(self.host_workspace_dir, csv_filename)
+            tell_ws = self.workspace_dir or "/workspace"
+            # 容器是 Linux，必须用 POSIX 斜杠；Windows 下 os.path.join 会把
+            # "/workspace" + 文件名 拼成 "\workspace\..."，容器内无法读取
+            tell_path = posixpath.join(tell_ws, csv_filename)
+            return host_path, tell_path
+
+        ws = self.workspace_dir if self.workspace_dir else str(config.workspace_root)
+        path = os.path.join(ws, csv_filename)
+        return path, path
+
+    # =================================================================
     #  安全校验
     # ═══════════════════════════════════════════════════════════
 
@@ -539,8 +566,7 @@ class CompanyDataLookup(BaseTool):
             if kw in words_in_sql:
                 return (
                     False,
-                    f"SQL 中包含危险关键字 '{kw}'，仅允许 SELECT（只读）查询。"
-                    f"请移除该关键字后重试。",
+                    f"SQL 中包含危险关键字 '{kw}'，仅允许 SELECT（只读）查询。" f"请移除该关键字后重试。",
                 )
 
         # ── 防线 3: 自动注入 LIMIT ──────────────────────

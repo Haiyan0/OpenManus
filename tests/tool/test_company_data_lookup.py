@@ -1,5 +1,4 @@
 """CompanyDataLookup 安全校验单元测试。"""
-import pytest
 from app.tool.company_data_lookup import CompanyDataLookup
 
 
@@ -7,9 +6,7 @@ class TestValidateSql:
     """_validate_sql 安全校验测试。"""
 
     def test_simple_select_passes(self):
-        ok, result = CompanyDataLookup._validate_sql(
-            "SELECT * FROM users"
-        )
+        ok, result = CompanyDataLookup._validate_sql("SELECT * FROM users")
         assert ok is True
         assert "LIMIT 50000" in result
 
@@ -29,9 +26,7 @@ class TestValidateSql:
         assert "LIMIT 50000" in result
 
     def test_already_has_limit_preserved(self):
-        ok, result = CompanyDataLookup._validate_sql(
-            "SELECT * FROM orders LIMIT 100"
-        )
+        ok, result = CompanyDataLookup._validate_sql("SELECT * FROM orders LIMIT 100")
         assert ok is True
         assert result == "SELECT * FROM orders LIMIT 100"
         # 不应追加第二个 LIMIT
@@ -45,23 +40,17 @@ class TestValidateSql:
         assert "SELECT" in msg or "仅允许" in msg
 
     def test_update_rejected(self):
-        ok, msg = CompanyDataLookup._validate_sql(
-            "UPDATE orders SET status = 'done'"
-        )
+        ok, msg = CompanyDataLookup._validate_sql("UPDATE orders SET status = 'done'")
         assert ok is False
         assert "UPDATE" in msg or "危险关键字" in msg
 
     def test_delete_rejected(self):
-        ok, msg = CompanyDataLookup._validate_sql(
-            "DELETE FROM orders WHERE id = 1"
-        )
+        ok, msg = CompanyDataLookup._validate_sql("DELETE FROM orders WHERE id = 1")
         assert ok is False
         assert "DELETE" in msg or "危险关键字" in msg
 
     def test_drop_table_rejected(self):
-        ok, msg = CompanyDataLookup._validate_sql(
-            "DROP TABLE users"
-        )
+        ok, msg = CompanyDataLookup._validate_sql("DROP TABLE users")
         assert ok is False
         assert "DROP" in msg or "危险关键字" in msg
 
@@ -93,9 +82,7 @@ class TestValidateSql:
         assert ok is False
 
     def test_select_with_semicolon_stripped(self):
-        ok, result = CompanyDataLookup._validate_sql(
-            "SELECT * FROM users;"
-        )
+        ok, result = CompanyDataLookup._validate_sql("SELECT * FROM users;")
         assert ok is True
         # 分号被去除，然后追加 LIMIT
         assert "LIMIT 50000" in result
@@ -115,3 +102,53 @@ class TestValidateSql:
         # 当前实现会匹配到引号内的 DROP 关键字，返回 False
         # 这是预期行为（保守策略）
         assert ok is False
+
+
+class TestResolveCsvPaths:
+    """_resolve_csv_paths 路径解析测试（Bug3：CSV 路径错位）。
+
+    sandbox 模式：CSV 必须写到宿主机挂载源目录（host_workspace_dir），
+    但告知模型的路径必须是容器内路径（/workspace/...），
+    否则容器内 python_execute read_csv 找不到文件。
+    """
+
+    def test_sandbox_writes_host_tells_container(self, tmp_path):
+        """sandbox 模式：写宿主挂载源，告知容器 /workspace 路径。"""
+        host_ws = tmp_path / "host_ws"
+        host_ws.mkdir()
+        tool = CompanyDataLookup()
+        tool.sandbox = object()  # 非 None 即视为 sandbox 已注入
+        tool.workspace_dir = "/workspace"
+        tool.host_workspace_dir = str(host_ws)
+
+        host_path, tell_path = tool._resolve_csv_paths("_query_result.csv")
+
+        assert host_path == str(host_ws / "_query_result.csv")
+        assert tell_path == "/workspace/_query_result.csv"
+        assert host_path != tell_path
+
+    def test_no_sandbox_writes_and_tells_same_path(self, tmp_path):
+        """无 sandbox：写路径与告知路径一致，都落在 workspace_dir 下。"""
+        tool = CompanyDataLookup()
+        tool.sandbox = None
+        tool.workspace_dir = str(tmp_path)
+        tool.host_workspace_dir = ""
+
+        host_path, tell_path = tool._resolve_csv_paths("_query_result.csv")
+
+        assert host_path == str(tmp_path / "_query_result.csv")
+        assert tell_path == host_path
+
+    def test_no_sandbox_falls_back_to_config_workspace(self, tmp_path, monkeypatch):
+        """无 sandbox 且未设 workspace_dir：回退到 config.workspace_root。"""
+        monkeypatch.setattr("app.config.WORKSPACE_ROOT", tmp_path)
+        tool = CompanyDataLookup()
+        tool.sandbox = None
+        tool.workspace_dir = ""
+        tool.host_workspace_dir = ""
+
+        host_path, tell_path = tool._resolve_csv_paths("r.csv")
+
+        expected = str(tmp_path / "r.csv")
+        assert host_path == expected
+        assert tell_path == expected
