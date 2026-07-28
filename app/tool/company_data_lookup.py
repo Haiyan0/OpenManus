@@ -259,11 +259,17 @@ class CompanyDataLookup(BaseTool):
 
     # ── 数据库连接 ──────────────────────────────────────────
 
-    def _get_connection(self):
+    def _get_connection(self, dict_cursor: bool = True):
         """创建一个 pymysql 同步连接。
 
         使用 config.web 中的 MySQL 配置。
         调用方负责在 asyncio.to_thread() 中调用，并在使用后关闭连接。
+
+        Args:
+            dict_cursor: True 用 DictCursor（_list_tables 手动遍历 dict 行需要）；
+                False 用默认 Cursor（_execute_query 的 pd.read_sql 必须——
+                DictCursor + pd.read_sql 会把列名当成数据，写出
+                「只有表头无数据」的 CSV）。
 
         Returns:
             pymysql.Connection
@@ -278,7 +284,7 @@ class CompanyDataLookup(BaseTool):
             raise ImportError("pymysql 未安装，请执行: pip install pymysql")
 
         try:
-            conn = pymysql.connect(
+            kwargs = dict(
                 host=config.web.mysql_host,
                 port=config.web.mysql_port,
                 user=config.web.mysql_user,
@@ -287,8 +293,10 @@ class CompanyDataLookup(BaseTool):
                 charset="utf8mb4",
                 connect_timeout=10,
                 read_timeout=_QUERY_TIMEOUT_SECONDS,
-                cursorclass=pymysql.cursors.DictCursor,
             )
+            if dict_cursor:
+                kwargs["cursorclass"] = pymysql.cursors.DictCursor
+            conn = pymysql.connect(**kwargs)
             return conn
         except Exception as e:
             raise ConnectionError(
@@ -442,7 +450,9 @@ class CompanyDataLookup(BaseTool):
         try:
             import pandas as pd
 
-            conn = self._get_connection()
+            # 用默认 Cursor：DictCursor + pd.read_sql 会把列名当数据，
+            # 写出「只有表头无数据」的 CSV（详见 TestGetConnectionCursor）
+            conn = self._get_connection(dict_cursor=False)
             df = pd.read_sql(safe_sql, conn)
         except ImportError:
             return self.fail_response(

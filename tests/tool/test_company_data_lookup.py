@@ -152,3 +152,52 @@ class TestResolveCsvPaths:
         expected = str(tmp_path / "r.csv")
         assert host_path == expected
         assert tell_path == expected
+
+
+class TestGetConnectionCursor:
+    """_get_connection 的 cursor 选择测试（Bug：CSV 只有表头无数据）。
+
+    根因：_get_connection 强制 DictCursor，而 pd.read_sql + DictCursor
+    会把列名当成数据返回，导致 to_csv 写出「表头重复、无数据」的 CSV。
+    修法：query 路径用默认 Cursor，list_tables 仍用 DictCursor。
+    """
+
+    def test_list_tables_path_uses_dict_cursor(self, monkeypatch):
+        import pymysql
+
+        captured = {}
+
+        class _FakeConn:
+            def close(self):
+                pass
+
+        def fake_connect(**kwargs):
+            captured.update(kwargs)
+            return _FakeConn()
+
+        monkeypatch.setattr(pymysql, "connect", fake_connect)
+        tool = CompanyDataLookup()
+        tool._get_connection()  # 默认 dict_cursor=True
+
+        assert captured.get("cursorclass") is pymysql.cursors.DictCursor
+
+    def test_query_path_uses_default_cursor(self, monkeypatch):
+        """query 路径不能强制 DictCursor，否则 pd.read_sql 取不到真实数据。"""
+        import pymysql
+
+        captured = {}
+
+        class _FakeConn:
+            def close(self):
+                pass
+
+        def fake_connect(**kwargs):
+            captured.update(kwargs)
+            return _FakeConn()
+
+        monkeypatch.setattr(pymysql, "connect", fake_connect)
+        tool = CompanyDataLookup()
+        tool._get_connection(dict_cursor=False)
+
+        # 不应强制 DictCursor（让 pd.read_sql 用默认 cursor 拿到真实数据）
+        assert captured.get("cursorclass") is None
