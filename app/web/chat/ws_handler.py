@@ -153,7 +153,7 @@ async def handle_chat_ws(
                                 db,
                                 chat_id=chat_id,
                                 role=_event_role(event),
-                                content=event.get("content"),
+                                content=_event_content(event),
                                 event_type=event["type"],
                                 tool_name=event.get("tool"),
                                 tool_args=_parse_args(event.get("args")),
@@ -204,6 +204,20 @@ def _event_role(event: dict) -> str:
     if event["type"] in ("done", "error"):
         return "system"
     return "assistant"
+
+
+def _event_content(event: dict) -> str | None:
+    """从事件中提取用于持久化的正文文本。
+
+    不同事件把正文放在不同键：
+    - tool_end → result（ObservableAgent.execute_tool 把工具结果放 result 键）
+    - error → message
+    - thinking / assistant / ask_human → content
+    - step_start / tool_start / done 无正文 → None
+
+    回归：原先只读 content，导致 tool_end 的结果落库为空。
+    """
+    return event.get("content") or event.get("result") or event.get("message")
 
 
 def _parse_args(raw_args) -> dict | None:

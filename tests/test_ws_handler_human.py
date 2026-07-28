@@ -72,3 +72,26 @@ async def test_non_human_response_ignored():
 
     assert not ah._response_future.done()
     assert stop.is_set()
+
+
+@pytest.mark.parametrize(
+    "event,expected",
+    [
+        ({"type": "tool_end", "result": "查询成功 5 行"}, "查询成功 5 行"),
+        ({"type": "error", "message": "boom"}, "boom"),
+        ({"type": "thinking", "content": "我在想"}, "我在想"),
+        ({"type": "assistant", "content": "答案"}, "答案"),
+        ({"type": "ask_human", "content": "请确认"}, "请确认"),
+        ({"type": "step_start", "step": 1}, None),
+        ({"type": "done", "reason": "completed"}, None),
+        ({"type": "tool_start", "tool": "x"}, None),
+    ],
+)
+def test_event_content_extracts_correct_field(event, expected):
+    """不同事件把正文放在不同键：tool_end→result, error→message, 其余→content。
+
+    回归：原先 ws_handler 只读 content，导致 tool_end 结果落库为空。
+    """
+    from app.web.chat.ws_handler import _event_content
+
+    assert _event_content(event) == expected
