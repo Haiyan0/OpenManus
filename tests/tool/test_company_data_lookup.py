@@ -154,50 +154,88 @@ class TestResolveCsvPaths:
         assert tell_path == expected
 
 
-class TestGetConnectionCursor:
-    """_get_connection 的 cursor 选择测试（Bug：CSV 只有表头无数据）。
+class TestExecuteQueryDataIntegrity:
+    """_execute_query 数据完整性测试（CSV 只有表头无数据 的回归）。
 
-    根因：_get_connection 强制 DictCursor，而 pd.read_sql + DictCursor
-    会把列名当成数据返回，导致 to_csv 写出「表头重复、无数据」的 CSV。
-    修法：query 路径用默认 Cursor，list_tables 仍用 DictCursor。
+    根因：pd.read_sql + DictCursor 会把列名当成数据行。
+    修法：改用 cursor.execute + pd.DataFrame(fetchall, columns=描述列名)，
+    与 cursor 类无关。本测试用假 cursor（无需真实 DB）验证 CSV 含真实数据、
+    而非重复的列名。
     """
 
-    def test_list_tables_path_uses_dict_cursor(self, monkeypatch):
-        import pymysql
+    class _FakeCursor:
+        def __init__(self, description, rows):
+            self.description = description
+            self._rows = rows
 
-        captured = {}
+        def execute(self, sql, params=None):
+            pass
 
-        class _FakeConn:
-            def close(self):
-                pass
+        def fetchall(self):
+            return self._rows
 
-        def fake_connect(**kwargs):
-            captured.update(kwargs)
-            return _FakeConn()
+        def __enter__(self):
+            return self
 
-        monkeypatch.setattr(pymysql, "connect", fake_connect)
+        def __exit__(self, *exc):
+            return False
+
+    class _FakeConn:
+        def __init__(self, description, rows):
+            self._description = description
+            self._rows = rows
+
+        def cursor(self):
+            return TestExecuteQueryDataIntegrity._FakeCursor(
+                self._description, self._rows
+            )
+
+        def close(self):
+            pass
+
+    def test_csv_contains_data_not_column_names(self, tmp_path, monkeypatch):
+        """CSV 应含真实数据行，而非把列名重复当数据。"""
+        import glob
+
         tool = CompanyDataLookup()
-        tool._get_connection()  # 默认 dict_cursor=True
+        tool.sandbox = None
+        tool.workspace_dir = str(tmp_path)
+        tool.host_workspace_dir = str(tmp_path)
+        # COUNT(*) 返回 1 行 1 列，值为 6566
+        fake = self._FakeConn(description=[("total",)], rows=[(6566,)])
+        monkeypatch.setattr(tool, "_get_connection", lambda **kw: fake)
 
-        assert captured.get("cursorclass") is pymysql.cursors.DictCursor
+        tool._execute_query("SELECT COUNT(*) AS total FROM fa_card_orders")
 
-    def test_query_path_uses_default_cursor(self, monkeypatch):
-        """query 路径不能强制 DictCursor，否则 pd.read_sql 取不到真实数据。"""
-        import pymysql
+        csvs = sorted(glob.glob(str(tmp_path / "_query_result_*.csv")))
+        assert csvs, "未写出 CSV"
+        with open(csvs[0], "r", encoding="utf-8-sig") as f:
+            content = f.read()
 
-        captured = {}
+        assert "6566" in content  # 真实数据
+        assert content.count("total") == 1  # 列名只出现一次（表头），不重复
 
-        class _FakeConn:
-            def close(self):
-                pass
+    def test_csv_preserves_multiple_columns(self, tmp_path, monkeypatch):
+        """多列多行结果应正确落盘，每行数据完整。"""
+        import glob
 
-        def fake_connect(**kwargs):
-            captured.update(kwargs)
-            return _FakeConn()
-
-        monkeypatch.setattr(pymysql, "connect", fake_connect)
         tool = CompanyDataLookup()
-        tool._get_connection(dict_cursor=False)
+        tool.sandbox = None
+        tool.workspace_dir = str(tmp_path)
+        tool.host_workspace_dir = str(tmp_path)
+        fake = self._FakeConn(
+            description=[("id",), ("name",)],
+            rows=[(1, "张三"), (2, "李四")],
+        )
+        monkeypatch.setattr(tool, "_get_connection", lambda **kw: fake)
 
-        # 不应强制 DictCursor（让 pd.read_sql 用默认 cursor 拿到真实数据）
-        assert captured.get("cursorclass") is None
+        tool._execute_query("SELECT id, name FROM users LIMIT 2")
+
+        csvs = sorted(glob.glob(str(tmp_path / "_query_result_*.csv")))
+        with open(csvs[0], "r", encoding="utf-8-sig") as f:
+            content = f.read()
+
+        lines = [ln for ln in content.splitlines() if ln.strip()]
+        assert lines[0] == "id,name"
+        assert "张三" in content and "李四" in content
+        assert len(lines) == 3  # 表头 + 2 行数据

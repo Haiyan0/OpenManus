@@ -259,17 +259,16 @@ class CompanyDataLookup(BaseTool):
 
     # ── 数据库连接 ──────────────────────────────────────────
 
-    def _get_connection(self, dict_cursor: bool = True):
-        """创建一个 pymysql 同步连接。
+    def _get_connection(self):
+        """创建一个 pymysql 同步连接（DictCursor）。
 
         使用 config.web 中的 MySQL 配置。
         调用方负责在 asyncio.to_thread() 中调用，并在使用后关闭连接。
 
-        Args:
-            dict_cursor: True 用 DictCursor（_list_tables 手动遍历 dict 行需要）；
-                False 用默认 Cursor（_execute_query 的 pd.read_sql 必须——
-                DictCursor + pd.read_sql 会把列名当成数据，写出
-                「只有表头无数据」的 CSV）。
+        DictCursor 用于 _list_tables 手动遍历 dict 行；
+        _execute_query 不用 pd.read_sql（与 DictCursor 不兼容），
+        而是 cursor.execute + pd.DataFrame(fetchall, columns=描述列名)，
+        因此 DictCursor 不影响查询结果正确性。
 
         Returns:
             pymysql.Connection
@@ -284,7 +283,7 @@ class CompanyDataLookup(BaseTool):
             raise ImportError("pymysql 未安装，请执行: pip install pymysql")
 
         try:
-            kwargs = dict(
+            conn = pymysql.connect(
                 host=config.web.mysql_host,
                 port=config.web.mysql_port,
                 user=config.web.mysql_user,
@@ -293,10 +292,8 @@ class CompanyDataLookup(BaseTool):
                 charset="utf8mb4",
                 connect_timeout=10,
                 read_timeout=_QUERY_TIMEOUT_SECONDS,
+                cursorclass=pymysql.cursors.DictCursor,
             )
-            if dict_cursor:
-                kwargs["cursorclass"] = pymysql.cursors.DictCursor
-            conn = pymysql.connect(**kwargs)
             return conn
         except Exception as e:
             raise ConnectionError(
@@ -450,10 +447,15 @@ class CompanyDataLookup(BaseTool):
         try:
             import pandas as pd
 
-            # 用默认 Cursor：DictCursor + pd.read_sql 会把列名当数据，
-            # 写出「只有表头无数据」的 CSV（详见 TestGetConnectionCursor）
-            conn = self._get_connection(dict_cursor=False)
-            df = pd.read_sql(safe_sql, conn)
+            conn = self._get_connection()
+            # 不用 pd.read_sql：它与 DictCursor 不兼容（会把列名当数据，
+            # 写出「只有表头无数据」的 CSV）。改为显式 cursor.execute +
+            # pd.DataFrame(fetchall, columns=描述列名)，cursor 类无关。
+            with conn.cursor() as cursor:
+                cursor.execute(safe_sql)
+                columns = [desc[0] for desc in cursor.description]
+                rows = cursor.fetchall()
+            df = pd.DataFrame(rows, columns=columns)
         except ImportError:
             return self.fail_response(
                 "查询执行需要 pandas 库，但未安装。请执行 pip install pandas 后重试。"
