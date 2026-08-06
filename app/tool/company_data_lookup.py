@@ -392,9 +392,23 @@ class CompanyDataLookup(BaseTool):
                     lines.append(f"  - {cname} ({ctype}){extra_str}{comment_str}")
                 lines.append("")
 
-            output = "\n".join(lines)
+            full_output = "\n".join(lines)
+
+            # 摘要：仅表清单（完整数据字典走 system 通道，不受 max_observe 截断）
+            summary_lines = [
+                f"📊 数据库: {self._data_database()}" f" | 共 {len(tables)} 张业务表",
+                "表清单：",
+            ]
+            for tname, tinfo in tables.items():
+                tcomment = tinfo["comment"]
+                summary_lines.append(
+                    f"  - {tname}" + (f" | {tcomment}" if tcomment else "")
+                )
+            summary_lines.append("完整表结构与字段详情已通过 system 通道提供，请直接据此回答。")
+            summary_output = "\n".join(summary_lines)
+
             logger.info(f"数据字典查询成功: {len(tables)} 张表")
-            return ToolResult(output=output)
+            return ToolResult(output=summary_output, system=full_output)
 
         except ImportError as e:
             logger.error(f"pymysql 未安装: {e}")

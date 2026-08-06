@@ -298,3 +298,117 @@ class TestListTablesUsesDataDatabase:
 
         assert fake.c.executed is not None
         assert fake.c.executed[1] == ("dev_data",)
+
+
+class TestListTablesSystemChannel:
+    """_list_tables 全量数据通道测试（Bug：数据字典被 max_observe 截断）。
+
+    根因：_list_tables 只返回 ToolResult(output=完整数据字典)，该 output 在
+    ToolCallAgent.act() 中被 max_observe 截断（QuickQuery=10000 字符），
+    模型只能看到前几张表。修复：完整数据字典放入 ToolResult.system
+    （下一轮 think 以 system message 注入，不受 max_observe 截断），
+    output 只留表清单摘要。
+    """
+
+    # 与 DictCursor 一致：每行是一个 dict
+    _ROWS = [
+        {
+            "TABLE_NAME": "fa_orders",
+            "TABLE_COMMENT": "藏品订单表",
+            "COLUMN_NAME": "id",
+            "COLUMN_TYPE": "bigint unsigned",
+            "DATA_TYPE": "bigint",
+            "CHARACTER_MAXIMUM_LENGTH": None,
+            "NUMERIC_PRECISION": 20,
+            "NUMERIC_SCALE": 0,
+            "IS_NULLABLE": "NO",
+            "COLUMN_DEFAULT": None,
+            "COLUMN_COMMENT": "主键",
+            "ORDINAL_POSITION": 1,
+        },
+        {
+            "TABLE_NAME": "fa_orders",
+            "TABLE_COMMENT": "藏品订单表",
+            "COLUMN_NAME": "amount",
+            "COLUMN_TYPE": "decimal(10,2)",
+            "DATA_TYPE": "decimal",
+            "CHARACTER_MAXIMUM_LENGTH": None,
+            "NUMERIC_PRECISION": 10,
+            "NUMERIC_SCALE": 2,
+            "IS_NULLABLE": "YES",
+            "COLUMN_DEFAULT": "0.00",
+            "COLUMN_COMMENT": "订单金额",
+            "ORDINAL_POSITION": 2,
+        },
+        {
+            "TABLE_NAME": "fa_user",
+            "TABLE_COMMENT": "用户注册信息表",
+            "COLUMN_NAME": "id",
+            "COLUMN_TYPE": "int unsigned",
+            "DATA_TYPE": "int",
+            "CHARACTER_MAXIMUM_LENGTH": None,
+            "NUMERIC_PRECISION": 10,
+            "NUMERIC_SCALE": 0,
+            "IS_NULLABLE": "NO",
+            "COLUMN_DEFAULT": None,
+            "COLUMN_COMMENT": "ID",
+            "ORDINAL_POSITION": 1,
+        },
+    ]
+
+    class _FakeCursor:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def execute(self, sql, params=None):
+            pass
+
+        def fetchall(self):
+            return self._rows
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class _FakeConn:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def cursor(self):
+            return TestListTablesSystemChannel._FakeCursor(self._rows)
+
+        def close(self):
+            pass
+
+    def _make_tool(self, monkeypatch):
+        monkeypatch.setattr(config.web, "mysql_data_database", "dev_data")
+        tool = CompanyDataLookup()
+        monkeypatch.setattr(tool, "_get_connection", lambda: self._FakeConn(self._ROWS))
+        return tool
+
+    def test_system_contains_full_dictionary(self, monkeypatch):
+        """system 通道应包含完整数据字典（表名+全部字段+注释）。"""
+        tool = self._make_tool(monkeypatch)
+        result = tool._list_tables()
+
+        assert result.system is not None
+        assert "fa_orders" in result.system
+        assert "fa_user" in result.system
+        assert "id (bigint unsigned)" in result.system
+        assert "amount (decimal(10,2))" in result.system
+        assert "主键" in result.system
+        assert "订单金额" in result.system
+        assert "📊 数据库: dev_data" in result.system
+
+    def test_output_is_table_list_summary(self, monkeypatch):
+        """output 应只含表清单摘要（不含字段细节），避免超长 observation。"""
+        tool = self._make_tool(monkeypatch)
+        result = tool._list_tables()
+
+        assert result.output is not None
+        assert "fa_orders" in result.output
+        assert "fa_user" in result.output
+        assert "id (bigint unsigned)" not in result.output
+        assert "amount (decimal(10,2))" not in result.output
