@@ -119,6 +119,8 @@ mysql_port = 3306
 mysql_user = "openmanus"
 mysql_password = "your-password"
 mysql_database = "openmanus_web"
+# 业务数据查询库（company_data_lookup 使用，缺省回退 mysql_database）
+mysql_data_database = "your_data_database"
 
 # 数据查询模式: "local" = 本地 company_data_resource 目录, "mysql" = MySQL 实时查询
 data_lookup_mode = "local"

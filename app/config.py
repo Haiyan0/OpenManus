@@ -113,6 +113,10 @@ class WebSettings(BaseModel):
     mysql_user: str = Field(..., description="MySQL 用户名")
     mysql_password: str = Field(..., description="MySQL 密码")
     mysql_database: str = Field(..., description="MySQL 数据库名")
+    mysql_data_database: Optional[str] = Field(
+        None,
+        description="业务数据查询库（company_data_lookup 使用），缺省回退 mysql_database",
+    )
 
     jwt_secret_key: str = Field(..., description="JWT 签名密钥")
     jwt_expire_hours: int = Field(24, description="JWT 有效期（小时）")

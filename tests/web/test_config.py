@@ -25,3 +25,12 @@ def test_mysql_url_format():
     assert url.startswith("mysql+aiomysql://")
     assert config.web.mysql_user in url
     assert config.web.mysql_database in url
+
+
+from app.config import WebSettings
+
+
+def test_mysql_data_database_field_optional():
+    """mysql_data_database 应为可选字段，默认 None。"""
+    field = WebSettings.model_fields["mysql_data_database"]
+    assert field.default is None
