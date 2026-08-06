@@ -1,4 +1,5 @@
 """CompanyDataLookup 安全校验单元测试。"""
+from app.config import config
 from app.tool.company_data_lookup import CompanyDataLookup
 
 
@@ -239,3 +240,61 @@ class TestExecuteQueryDataIntegrity:
         assert lines[0] == "id,name"
         assert "张三" in content and "李四" in content
         assert len(lines) == 3  # 表头 + 2 行数据
+
+
+class TestDataDatabase:
+    """_data_database 业务库解析测试（分库后 company_data_lookup 只查业务库）。"""
+
+    def test_falls_back_to_mysql_database(self, monkeypatch):
+        """未配置 mysql_data_database 时回退 web 库，向后兼容。"""
+        monkeypatch.setattr(config.web, "mysql_data_database", None)
+        tool = CompanyDataLookup()
+        assert tool._data_database() == config.web.mysql_database
+
+    def test_returns_configured_data_database(self, monkeypatch):
+        """配置后返回业务库名。"""
+        monkeypatch.setattr(config.web, "mysql_data_database", "dev_data")
+        tool = CompanyDataLookup()
+        assert tool._data_database() == "dev_data"
+
+
+class TestListTablesUsesDataDatabase:
+    """_list_tables 的 TABLE_SCHEMA 过滤必须用业务库（用假连接捕获 SQL 参数）。"""
+
+    class _FakeCursor:
+        def __init__(self):
+            self.executed = None
+
+        def execute(self, sql, params=None):
+            self.executed = (sql, params)
+
+        def fetchall(self):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class _FakeConn:
+        def __init__(self):
+            self.c = TestListTablesUsesDataDatabase._FakeCursor()
+
+        def cursor(self):
+            return self.c
+
+        def close(self):
+            pass
+
+    def test_table_schema_filter_uses_data_database(self, monkeypatch):
+        """information_schema 查询的 TABLE_SCHEMA 参数应为业务库。"""
+        monkeypatch.setattr(config.web, "mysql_data_database", "dev_data")
+        fake = self._FakeConn()
+        tool = CompanyDataLookup()
+        monkeypatch.setattr(tool, "_get_connection", lambda: fake)
+
+        tool._list_tables()
+
+        assert fake.c.executed is not None
+        assert fake.c.executed[1] == ("dev_data",)

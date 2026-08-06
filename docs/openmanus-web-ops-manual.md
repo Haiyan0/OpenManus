@@ -230,6 +230,7 @@ mysql_port = 3306
 mysql_user = "openmanus"
 mysql_password = "你的密码"
 mysql_database = "openmanus_web"
+mysql_data_database = "dev_data"   # 业务数据查询库（可选，缺省回退 mysql_database）
 
 jwt_secret_key = "请生成一个随机字符串替换这里"
 jwt_expire_hours = 24

@@ -259,6 +259,10 @@ class CompanyDataLookup(BaseTool):
 
     # ── 数据库连接 ──────────────────────────────────────────
 
+    def _data_database(self) -> str:
+        """业务数据查询库名：优先 mysql_data_database，缺省回退 mysql_database。"""
+        return config.web.mysql_data_database or config.web.mysql_database
+
     def _get_connection(self):
         """创建一个 pymysql 同步连接（DictCursor）。
 
@@ -288,7 +292,7 @@ class CompanyDataLookup(BaseTool):
                 port=config.web.mysql_port,
                 user=config.web.mysql_user,
                 password=config.web.mysql_password,
-                database=config.web.mysql_database,
+                database=self._data_database(),
                 charset="utf8mb4",
                 connect_timeout=10,
                 read_timeout=_QUERY_TIMEOUT_SECONDS,
@@ -299,7 +303,7 @@ class CompanyDataLookup(BaseTool):
             raise ConnectionError(
                 f"无法连接到 MySQL 数据库 "
                 f"({config.web.mysql_host}:{config.web.mysql_port}/"
-                f"{config.web.mysql_database}): {e}"
+                f"{self._data_database()}): {e}"
             ) from e
 
     # ── 数据字典查询 ────────────────────────────────────────
@@ -339,12 +343,12 @@ class CompanyDataLookup(BaseTool):
         try:
             conn = self._get_connection()
             with conn.cursor() as cursor:
-                cursor.execute(sql, (config.web.mysql_database,))
+                cursor.execute(sql, (self._data_database(),))
                 rows = cursor.fetchall()
 
             if not rows:
                 return self.fail_response(
-                    f"数据库 '{config.web.mysql_database}' 中未找到任何用户表。" f"请确认数据库中已创建业务数据表。"
+                    f"数据库 '{self._data_database()}' 中未找到任何用户表。" f"请确认数据库中已创建业务数据表。"
                 )
 
             # 按表分组
@@ -362,7 +366,7 @@ class CompanyDataLookup(BaseTool):
 
             # 格式化输出
             lines = [
-                f"📊 数据库: {config.web.mysql_database}" f" | 共 {len(tables)} 张业务表",
+                f"📊 数据库: {self._data_database()}" f" | 共 {len(tables)} 张业务表",
                 "",
             ]
 
