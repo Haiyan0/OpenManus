@@ -1,13 +1,22 @@
 """聊天会话与消息 ORM 模型。"""
 from datetime import datetime
 
-from sqlalchemy import JSON, BigInteger, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.web.database import Base
 
 
-AGENT_TYPES = {"general", "data_analysis", "quick_query"}
+AGENT_TYPES = {"general", "data_analysis", "quick_query", "wechat_publish"}
 CHAT_STATUS = {"active", "archived"}
 
 
@@ -21,7 +30,9 @@ class Chat(Base):
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     title: Mapped[str] = mapped_column(String(200), nullable=False, default="新会话")
-    agent_type: Mapped[str] = mapped_column(String(50), nullable=False, default="general")
+    agent_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="general"
+    )
     sandbox_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
     created_at: Mapped[datetime] = mapped_column(

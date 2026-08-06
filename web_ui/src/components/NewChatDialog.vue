@@ -7,6 +7,7 @@
         <option value="general">🤖 通用 Agent (Manus)</option>
         <option value="data_analysis">📊 数据分析 Agent</option>
         <option value="quick_query">⚡ 快速查询</option>
+        <option value="wechat_publish">📰 公众号发布</option>
       </select>
       <label class="block text-sm font-medium text-gray-600 mb-2">会话标题（可选）</label>
       <input v-model="title" class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4" placeholder="输入标题..." />
