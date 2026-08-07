@@ -8,6 +8,7 @@ markdown/html 文章到公众号草稿箱。凭据由脚本从 <cwd>/.baoyu-skil
 import os
 import shutil
 import subprocess
+from typing import Optional
 
 from app.config import PROJECT_ROOT
 from app.logger import logger
@@ -67,6 +68,28 @@ class WechatPublishTool(BaseTool):
         },
         "required": ["action", "file_path"],
     }
+
+    # Sandbox 注入（可选，由 Agent.set_sandbox() 遍历 available_tools 自动注入）
+    sandbox: Optional[object] = None
+    # 容器内工作目录（sandbox 模式为 /workspace）
+    workspace_dir: str = ""
+    # 宿主机挂载源目录（sandbox 模式下容器 /workspace 的宿主映射）
+    host_workspace_dir: str = ""
+
+    def _resolve_host_path(self, file_path: str) -> str:
+        """把容器内路径映射为宿主机路径（sandbox 模式）。
+
+        容器 /workspace 与宿主机 host_workspace_dir 是同一 bind mount，
+        替换前缀即得宿主可读路径；无沙箱或非 workspace 前缀路径原样返回。
+        """
+        if (
+            self.sandbox is not None
+            and self.workspace_dir
+            and self.host_workspace_dir
+            and file_path.startswith(self.workspace_dir)
+        ):
+            return file_path.replace(self.workspace_dir, self.host_workspace_dir, 1)
+        return file_path
 
     def _resolve_runner(self) -> list[str]:
         """解析 bun 运行器：优先 bun，缺失时回退 npx -y bun。"""
@@ -131,12 +154,13 @@ class WechatPublishTool(BaseTool):
             return self.fail_response(
                 f"不支持的 action: '{action}'，可选值为 'preview' 或 'publish'"
             )
-        if not os.path.isfile(file_path):
+        resolved_path = self._resolve_host_path(file_path)
+        if not os.path.isfile(resolved_path):
             return self.fail_response(f"文章文件不存在: {file_path}")
 
         try:
             cmd = self._build_command(
-                action, file_path, title, summary, author, theme, cover
+                action, resolved_path, title, summary, author, theme, cover
             )
             code, stdout, stderr = await asyncio.to_thread(self._run_script, cmd)
         except subprocess.TimeoutExpired:

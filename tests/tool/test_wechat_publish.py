@@ -1,4 +1,5 @@
 """WechatPublishTool 单元测试（mock subprocess，无真实网络）。"""
+import os
 from pathlib import Path
 
 from app.config import PROJECT_ROOT
@@ -153,5 +154,86 @@ class TestExecute:
 
         tool = WechatPublishTool()
         result = asyncio.run(tool.execute(action="publish", file_path="no_such.md"))
+        assert result.error is not None
+        assert "不存在" in result.error
+
+
+class TestSandbox:
+    """沙箱模式下容器路径 → 宿主路径映射测试。"""
+
+    def test_sandbox_fields_injectable(self):
+        """set_sandbox 注入的三个字段存在且默认为空。"""
+        tool = WechatPublishTool()
+        assert tool.sandbox is None
+        assert tool.workspace_dir == ""
+        assert tool.host_workspace_dir == ""
+
+        tool.sandbox = object()
+        tool.workspace_dir = "/workspace"
+        tool.host_workspace_dir = r"C:\data\ws"
+        assert tool.workspace_dir == "/workspace"
+
+    def test_resolve_host_path_maps_workspace_prefix(self, tmp_path):
+        """容器 /workspace 前缀应映射到宿主挂载目录。"""
+        tool = WechatPublishTool()
+        tool.sandbox = object()
+        tool.workspace_dir = "/workspace"
+        tool.host_workspace_dir = str(tmp_path)
+
+        resolved = tool._resolve_host_path("/workspace/test_wechat_article.md")
+        assert os.path.normpath(resolved) == os.path.normpath(
+            str(tmp_path / "test_wechat_article.md")
+        )
+
+    def test_resolve_host_path_passthrough_without_sandbox(self):
+        """无沙箱时路径原样返回。"""
+        tool = WechatPublishTool()
+        assert tool._resolve_host_path(r"C:\x\a.md") == r"C:\x\a.md"
+
+    def test_execute_sandbox_maps_workspace_path(self, monkeypatch, tmp_path):
+        """execute 在沙箱模式下应把容器路径映射为宿主路径再调用脚本。"""
+        import asyncio
+
+        tool = WechatPublishTool()
+        tool.sandbox = object()
+        tool.workspace_dir = "/workspace"
+        tool.host_workspace_dir = str(tmp_path)
+        article = tmp_path / "test_wechat_article.md"
+        article.write_text("# 测试", encoding="utf-8")
+
+        captured = {}
+
+        class _FakeProc:
+            returncode = 0
+            stdout = '{"media_id": "abc123"}'
+            stderr = ""
+
+        def _fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return _FakeProc()
+
+        monkeypatch.setattr("subprocess.run", _fake_run)
+        result = asyncio.run(
+            tool.execute(
+                action="publish", file_path="/workspace/test_wechat_article.md"
+            )
+        )
+        assert result.error is None
+        joined = " ".join(captured["cmd"])
+        assert os.path.normpath(str(article)) in os.path.normpath(joined)
+        assert "/workspace/test_wechat_article.md" not in joined
+
+    def test_execute_sandbox_missing_file_still_fails(self):
+        """映射后宿主文件不存在仍应报错（不误报脚本错误）。"""
+        import asyncio
+
+        tool = WechatPublishTool()
+        tool.sandbox = object()
+        tool.workspace_dir = "/workspace"
+        tool.host_workspace_dir = r"C:\no\such\dir"
+
+        result = asyncio.run(
+            tool.execute(action="publish", file_path="/workspace/absent.md")
+        )
         assert result.error is not None
         assert "不存在" in result.error
