@@ -27,7 +27,7 @@ class DataAnalysis(ToolCallAgent):
     system_prompt: str = SYSTEM_PROMPT.format(directory=config.workspace_root)
     next_step_prompt: str = NEXT_STEP_PROMPT
 
-    max_observe: int = 15000
+    max_observe: int = 50000
     max_steps: int = 60
 
     # Sandbox 注入（由 Web 层设置，可选）
@@ -76,6 +76,10 @@ class DataAnalysis(ToolCallAgent):
             # 宿主机挂载源目录（CompanyDataLookup 写 CSV 用，容器经 bind mount 可见）
             if hasattr(tool, "host_workspace_dir") and host_workspace:
                 tool.host_workspace_dir = host_workspace
+                logger.debug(f"HostWorkspace 已注入工具: {tool.name} → {host_workspace}")
+            # DataVisualization 的字段名带下划线前缀（npx ts-node 宿主机写 chart 用）
+            if hasattr(tool, "_host_workspace_dir") and host_workspace:
+                tool._host_workspace_dir = host_workspace
                 logger.debug(f"HostWorkspace 已注入工具: {tool.name} → {host_workspace}")
             # 修正发给 LLM 的工具描述中的宿主机路径 → 容器内路径
             if hasattr(tool, "parameters") and isinstance(tool.parameters, dict):
