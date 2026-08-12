@@ -32,7 +32,7 @@ class QuickQuery(ToolCallAgent):
     system_prompt: str = SYSTEM_PROMPT.format(directory=config.workspace_root)
     next_step_prompt: str = NEXT_STEP_PROMPT
 
-    max_observe: int = 10000
+    max_observe: int = 50000
     max_steps: int = 15
 
     # Sandbox 注入（由 Web 层设置，可选）

@@ -117,11 +117,14 @@ use_data_analysis_agent = true     # The Data Analysi Agent to solve various dat
 
 # Web 多用户服务配置
 [web]
-mysql_host = "192.168.0.32"
+mysql_host = "localhost"
 mysql_port = 3306
-mysql_user = "liudaichuang"
+mysql_user = "root"
 mysql_password = "123456"
 mysql_database = "openmanus_web"
+
+# 业务数据查询库（company_data_lookup 使用，缺省回退 mysql_database）
+mysql_data_database = "dev_data"
 
 # 数据查询模式: "local" = 本地 company_data_resource 目录, "mysql" = MySQL 实时查询
 data_lookup_mode = "mysql"
