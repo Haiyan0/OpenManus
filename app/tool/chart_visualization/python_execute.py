@@ -2,6 +2,7 @@ from app.config import config
 from app.tool.base import ToolResult
 from app.tool.python_execute import PythonExecute
 
+
 # system 通道注入上限（对齐 QuickQuery/DataAnalysis 的 max_observe=50000）
 MAX_SYSTEM_CHARS = 50000
 _HEAD_KEEP = 20000

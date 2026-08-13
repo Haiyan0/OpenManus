@@ -61,11 +61,7 @@ async def test_long_stdout_truncated_keeps_head_and_tail():
     tool.sandbox = None
 
     # 总输出 60000 字符：HEAD_ + 25000 个 A + 30000 个 B + 5000 个 C
-    code = (
-        "print('HEAD_' + 'A' * 25000)\n"
-        "print('B' * 30000)\n"
-        "print('C' * 5000)"
-    )
+    code = "print('HEAD_' + 'A' * 25000)\n" "print('B' * 30000)\n" "print('C' * 5000)"
     result = await tool.execute(code=code)
 
     assert result.error is None
