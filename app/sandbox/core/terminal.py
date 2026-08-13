@@ -64,11 +64,17 @@ class DockerSession:
             self.exec_id, socket=True, tty=True, stream=True, demux=True
         )
 
-        if hasattr(socket_data, "_sock"):
+        if hasattr(socket_data, "recv") and hasattr(socket_data, "sendall"):
+            # docker SDK 7.x+：exec_start(socket=True) 直接返回 socket 兼容对象
+            # （Docker Desktop Windows 命名管道下为 NpipeSocket），自带完整 API
+            self.socket = socket_data
+        elif hasattr(socket_data, "_sock"):
+            # 旧版 docker SDK：返回 SocketAdapter 包装，解包底层 socket
             self.socket = socket_data._sock
-            self.socket.setblocking(False)
         else:
             raise RuntimeError("Failed to get socket connection")
+
+        self.socket.setblocking(False)
 
         await self._read_until_prompt()
 
@@ -126,7 +132,9 @@ class DockerSession:
         buffer = b""
         while b"$ " not in buffer:
             try:
-                chunk = self.socket.recv(4096)
+                # 线程池执行 recv：NpipeSocket.recv 同步阻塞（Windows 命名管道），
+                # 直接调用会卡死事件循环且无法被 asyncio 超时取消
+                chunk = await asyncio.to_thread(self.socket.recv, 4096)
                 if chunk:
                     buffer += chunk
             except socket.error as e:
@@ -166,7 +174,10 @@ class DockerSession:
 
                 while True:
                     try:
-                        chunk = self.socket.recv(4096)
+                        # 线程池执行 recv：NpipeSocket.recv 同步阻塞且
+                        # setblocking(False) 无效，直接调用会让 asyncio.wait_for
+                        # 超时失效（同步阻塞无法取消），导致超时命令挂死/不抛超时
+                        chunk = await asyncio.to_thread(self.socket.recv, 4096)
                         if not chunk:
                             break
 
