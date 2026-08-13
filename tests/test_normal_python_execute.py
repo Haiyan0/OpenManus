@@ -52,3 +52,43 @@ def test_code_description_contains_preview_rules():
     assert "严禁打印全量数据" in desc
     assert "df.head(5)" in desc
     assert "df.to_string" in desc
+
+
+@pytest.mark.asyncio
+async def test_long_stdout_truncated_keeps_head_and_tail():
+    """超长 stdout：system 注入应保留头部预览与尾部统计结果，加截断标记。"""
+    tool = NormalPythonExecute()
+    tool.sandbox = None
+
+    # 总输出 60000 字符：HEAD_ + 25000 个 A + 30000 个 B + 5000 个 C
+    code = (
+        "print('HEAD_' + 'A' * 25000)\n"
+        "print('B' * 30000)\n"
+        "print('C' * 5000)"
+    )
+    result = await tool.execute(code=code)
+
+    assert result.error is None
+    assert result.system is not None
+    assert "HEAD_" in result.system  # 头部保留
+    assert "A" * 100 in result.system  # 头部区内容保留
+    assert "C" * 100 in result.system  # 尾部区内容保留（统计结果区）
+    assert "...[stdout 共" in result.system  # 截断标记存在
+    assert len(result.system) < 51000  # 截断后长度受控（50000 + 标记）
+
+    # output 摘要字符数应反映截断后的实际长度
+    assert "system（" in str(result.output)
+
+
+@pytest.mark.asyncio
+async def test_short_stdout_not_truncated():
+    """未超阈值：保持 Bug1 原行为，全量注入 system，无截断标记。"""
+    tool = NormalPythonExecute()
+    tool.sandbox = None
+
+    result = await tool.execute(code="print('A=1'); print('B=2')")
+
+    assert result.system is not None
+    assert "A=1" in result.system and "B=2" in result.system
+    assert "...[stdout 共" not in result.system
+    assert result.system.count("A=1") == 1

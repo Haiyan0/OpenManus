@@ -2,6 +2,25 @@ from app.config import config
 from app.tool.base import ToolResult
 from app.tool.python_execute import PythonExecute
 
+# system 通道注入上限（对齐 QuickQuery/DataAnalysis 的 max_observe=50000）
+MAX_SYSTEM_CHARS = 50000
+_HEAD_KEEP = 20000
+_TAIL_KEEP = 30000
+
+
+def _truncate_stdout(observation: str) -> str:
+    """stdout 超上限时保留头部预览与尾部统计结果，中间加截断标记。"""
+    if len(observation) <= MAX_SYSTEM_CHARS:
+        return observation
+    head = observation[:_HEAD_KEEP]
+    tail = observation[-_TAIL_KEEP:]
+    return (
+        f"{head}\n"
+        f"...[stdout 共 {len(observation)} 字符，超过 {MAX_SYSTEM_CHARS} 上限"
+        f"已截断，仅保留头部预览与尾部统计结果]...\n"
+        f"{tail}"
+    )
+
 
 class NormalPythonExecute(PythonExecute):
     """数据分析专用 Python 执行工具，支持超时与安全限制。"""
@@ -54,6 +73,9 @@ class NormalPythonExecute(PythonExecute):
         Bug1：stdout 全量进 ToolResult.system（不截断，由 ToolCallAgent
         以 system message 形式注入下一轮 think），output 只留短摘要，
         使模型能基于完整数据回答、无需复述被截断的 observation。
+
+        数据读取上下文精简：stdout 超过 MAX_SYSTEM_CHARS 时保护性截断，
+        保留头部预览与尾部统计结果，防止模型误打印全量数据泄入上下文。
         """
         raw = await super().execute(code, timeout)
         observation = raw.get("observation", "")
@@ -62,8 +84,8 @@ class NormalPythonExecute(PythonExecute):
         if not success:
             return ToolResult(error=observation)
 
-        n = len(observation)
+        system_content = _truncate_stdout(observation)
         return ToolResult(
-            output=f"脚本执行成功，stdout 已载入 system（{n} 字符）",
-            system=observation,
+            output=f"脚本执行成功，stdout 已载入 system（{len(system_content)} 字符）",
+            system=system_content,
         )
