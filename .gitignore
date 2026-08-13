@@ -207,3 +207,6 @@ node_modules
 # 公众号发布工具 bun 依赖与凭据（node_modules 已有全局规则）
 .baoyu-skills/*
 !.baoyu-skills/.gitkeep
+
+# superpowers SDD 工作区（plan 运行期 scratch）
+.superpowers/
