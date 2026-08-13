@@ -42,3 +42,13 @@ async def test_normal_python_execute_error_goes_to_error_field():
     assert isinstance(result, ToolResult)
     assert result.error is not None
     assert "boom" in result.error
+
+
+def test_code_description_contains_preview_rules():
+    """工具描述必须包含「数据读取规范」关键约束（回归防误删）。"""
+    tool = NormalPythonExecute()
+    desc = tool.parameters["properties"]["code"]["description"]
+    assert "前 5 行" in desc
+    assert "严禁打印全量数据" in desc
+    assert "df.head(5)" in desc
+    assert "df.to_string" in desc

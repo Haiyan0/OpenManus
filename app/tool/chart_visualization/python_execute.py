@@ -28,6 +28,14 @@ class NormalPythonExecute(PythonExecute):
 3. 报告需要内容丰富，包含完整的分析过程和对应的数据可视化
 4. 可分步调用此工具，从汇总到深入进行分析
 
+## 数据读取规范
+- 读取数据文件（CSV/Excel 等）时，只打印数据预览：列名（df.columns.tolist()）、
+  数据形状（df.shape）、前 5 行（df.head(5)），确认数据结构即可
+- 严禁打印全量数据（df.to_string()、print(df)、遍历打印所有行等），
+  全量数据不得进入对话上下文
+- 统计分析脚本只 print 统计结果（聚合值、分组汇总、结论数字），
+  不要 print 原始数据行，基于统计结果直接回答用户
+
 ## 可视化生成
 - 使用 matplotlib 或 plotly 生成图表
 - 图表保存为 PNG 或 HTML 文件到 {directory} 目录
