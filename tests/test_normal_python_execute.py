@@ -73,7 +73,7 @@ async def test_long_stdout_truncated_keeps_head_and_tail():
     assert len(result.system) < 51000  # 截断后长度受控（50000 + 标记）
 
     # output 摘要字符数应反映截断后的实际长度
-    assert "system（" in str(result.output)
+    assert f"system（{len(result.system)} 字符）" in str(result.output)
 
 
 @pytest.mark.asyncio
@@ -88,3 +88,16 @@ async def test_short_stdout_not_truncated():
     assert "A=1" in result.system and "B=2" in result.system
     assert "...[stdout 共" not in result.system
     assert result.system.count("A=1") == 1
+
+
+def test_truncate_stdout_exact_boundary():
+    """恰在阈值不截断、超阈值才截断（锁定 <= 语义，防未来误改）。"""
+    from app.tool.chart_visualization.python_execute import (
+        MAX_SYSTEM_CHARS,
+        _truncate_stdout,
+    )
+
+    assert _truncate_stdout("x" * MAX_SYSTEM_CHARS) == "x" * MAX_SYSTEM_CHARS
+    truncated = _truncate_stdout("x" * (MAX_SYSTEM_CHARS + 1))
+    assert "...[stdout 共" in truncated
+    assert len(truncated) <= MAX_SYSTEM_CHARS + 100

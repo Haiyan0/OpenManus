@@ -56,7 +56,8 @@ class ToolCallAgent(ReActAgent):
             system_msgs.append(
                 Message.system_message(
                     "# 工具返回的完整数据（请直接据此回答，不要复述原始内容）\n"
-                    + "\n\n".join(self.pending_systems)
+                    "# 若下方数据出现截断标记，说明输出超长已截断，请勿基于残缺数据下结论，"
+                    "应精简脚本只打印统计结果后重跑。\n" + "\n\n".join(self.pending_systems)
                 )
             )
             self.pending_systems = []
