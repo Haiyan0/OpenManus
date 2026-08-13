@@ -525,6 +525,7 @@ class CompanyDataLookup(BaseTool):
                 f"数据已保存至: {tell_path}\n\n"
                 f"前5行预览:\n{preview}\n\n"
                 f"请使用 python_execute (pandas.read_csv('{tell_path}')) 读取该文件继续分析。"
+                f"读取该 CSV 时只打印预览（列名与前 5 行），请勿打印全量数据。"
             ),
         )
 

@@ -241,6 +241,23 @@ class TestExecuteQueryDataIntegrity:
         assert "张三" in content and "李四" in content
         assert len(lines) == 3  # 表头 + 2 行数据
 
+    def test_query_output_advises_preview_only(self, tmp_path, monkeypatch):
+        """query 输出应引导后续 read_csv 只打印预览，不打印全量数据。"""
+        tool = CompanyDataLookup()
+        tool.sandbox = None
+        tool.workspace_dir = str(tmp_path)
+        tool.host_workspace_dir = str(tmp_path)
+        fake = self._FakeConn(description=[("total",)], rows=[(6566,)])
+        monkeypatch.setattr(tool, "_get_connection", lambda **kw: fake)
+
+        result = tool._execute_query("SELECT COUNT(*) AS total FROM fa_card_orders")
+
+        assert result.error is None
+        assert result.output is not None
+        assert "只打印预览" in result.output
+        assert "前 5 行" in result.output
+        assert "请勿打印全量数据" in result.output
+
 
 class TestDataDatabase:
     """_data_database 业务库解析测试（分库后 company_data_lookup 只查业务库）。"""
