@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import tomllib
 from pathlib import Path
@@ -14,6 +15,15 @@ def get_project_root() -> Path:
 
 PROJECT_ROOT = get_project_root()
 WORKSPACE_ROOT = PROJECT_ROOT / "workspace"
+
+
+def get_env() -> str:
+    """返回当前部署环境名。
+
+    读 OPENMANUS_ENV 环境变量，未设置或空白时默认 "dev"。
+    """
+    env = os.environ.get("OPENMANUS_ENV", "").strip()
+    return env if env else "dev"
 
 
 class LLMSettings(BaseModel):
@@ -256,15 +266,28 @@ class Config:
                     self._initialized = True
 
     @staticmethod
-    def _get_config_path() -> Path:
+    def _get_config_path(env: Optional[str] = None) -> Path:
         root = PROJECT_ROOT
-        config_path = root / "config" / "config.toml"
-        if config_path.exists():
-            return config_path
-        example_path = root / "config" / "config.example.toml"
-        if example_path.exists():
-            return example_path
-        raise FileNotFoundError("No configuration file found in config directory")
+        config_dir = root / "config"
+        env = env or get_env()
+        env_path = config_dir / f"config_{env}.toml"
+        if env_path.exists():
+            return env_path
+        # 默认 dev 缺失时回退 example（现有行为保留）
+        if env == "dev":
+            example_path = config_dir / "config.example.toml"
+            if example_path.exists():
+                return example_path
+            raise FileNotFoundError("No configuration file found in config directory")
+        # 非默认环境缺失：明确报错，含可用环境清单，不静默回退
+        available = sorted(
+            p.name[len("config_"):-len(".toml")]
+            for p in config_dir.glob("config_*.toml")
+        )
+        raise FileNotFoundError(
+            f"Config file for environment '{env}' not found: {env_path}. "
+            f"Available environments: {available or 'none'}"
+        )
 
     def _load_config(self) -> dict:
         config_path = self._get_config_path()
