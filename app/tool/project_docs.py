@@ -3,7 +3,7 @@
 从 project_docs/ 目录树（企业/项目 两级）按需读取业务说明文档，
 供 CompanyDataLookup 的 list_projects / get_doc action 分发调用。
 
-约束：只依赖标准库与 ToolResult；无状态纯函数；root 参数可注入（测试用 tmp_path）。
+约束：仅依赖 app.config（PROJECT_ROOT）与 ToolResult；无状态纯函数；root 参数可注入（测试用 tmp_path）。
 """
 from pathlib import Path
 from typing import Optional
@@ -41,7 +41,7 @@ def list_projects(query: str = "", root: Optional[Path] = None) -> ToolResult:
     if not doc_root.is_dir():
         return ToolResult(
             error=(
-                f"未配置项目业务文档（目录不存在: {doc_root}）。"
+                f"未配置项目业务文档（目录不存在: {DOCS_DIR}）。"
                 f"可直接使用 list_tables 查询数据库表结构。"
             )
         )
@@ -148,7 +148,7 @@ def get_doc(query: str, root: Optional[Path] = None) -> ToolResult:
     if not doc_root.is_dir():
         return ToolResult(
             error=(
-                f"未配置项目业务文档（目录不存在: {doc_root}）。"
+                f"未配置项目业务文档（目录不存在: {DOCS_DIR}）。"
                 f"可直接使用 list_tables 查询数据库表结构。"
             )
         )
@@ -175,7 +175,12 @@ def get_doc(query: str, root: Optional[Path] = None) -> ToolResult:
         try:
             parts.append(f.read_text(encoding="utf-8"))
         except Exception as e:
-            return ToolResult(error=f"读取文档失败: {f} → {e}")
+            return ToolResult(
+                error=(
+                    f"读取文档失败: {proj_dir.parent.name}/{proj_dir.name}/{f.name} → {e}。"
+                    f"可直接使用 list_tables 查询数据库表结构。"
+                )
+            )
     full = "\n\n".join(parts)
     source = f"{proj_dir.parent.name}/{proj_dir.name}"
     if len(full) <= _DOC_OUTPUT_MAX:

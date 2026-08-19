@@ -202,3 +202,8 @@ class TestExampleDocAssets:
         assert "## 1. 项目概述" in content
         assert "## 3. 字段口径说明" in content
         assert "不包含任何文件路径" in content
+
+    def test_example_sql_excludes_test_orders(self):
+        doc = PROJECT_ROOT / DOCS_DIR / "示例企业" / "示例项目" / "业务说明.md"
+        content = doc.read_text(encoding="utf-8")
+        assert "user_id <> 0" in content

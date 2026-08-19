@@ -205,3 +205,4 @@ get_doc 的 output 摘要带文档来源（第 5 节），用户能知道 agent 
 | `app/prompt/quick_query.py` | 修改：使用流程插入文档步骤 |
 | `app/prompt/visualization.py` | 修改：同上 |
 | `tests/tool/test_company_data_lookup.py` | 修改：补分发用例 |
+| tests/test_project_doc_prompt.py | **新增**：prompt 引导语防回归测试 |
