@@ -116,6 +116,15 @@ class TestGetDocMatch:
         assert result.error is not None
         assert "list_tables" in result.error
 
+    def test_traversal_query_not_hit(self, docs_tree):
+        result = get_doc("../..", root=docs_tree)
+        assert result.error is not None
+
+    def test_absolute_path_query_not_hit(self, docs_tree):
+        abs_q = str(docs_tree / "甲企业" / "项目A")
+        result = get_doc(abs_q, root=docs_tree)
+        assert result.error is not None
+
 
 class TestGetDocContent:
     def test_multiple_md_joined_in_name_order(self, docs_tree):

@@ -82,7 +82,7 @@ def _match_project(doc_root: Path, query: str):
     """按 query 匹配项目目录。
 
     匹配规则（与 company_data_lookup local 模式同构）：
-    1. query 含 / 且对应目录存在 → 精确命中
+    1. query 含 / 且对应目录在 doc_root 内 → 精确命中（绝对路径 query 直接拒绝）
     2. 企业名 in query（子串、忽略大小写）→ 企业内再项目名 in query：
        唯一 → 命中；多个 → 候选清单；零个 → 该企业可用项目
     3. 未命中企业名 → 全树项目名 in query：
@@ -93,10 +93,21 @@ def _match_project(doc_root: Path, query: str):
         为 "ambiguous"/"none" 时 data 是提示文本
     """
     companies = _subdirs(doc_root)
-    q = query.strip().lower()
+    doc_root_r = doc_root.resolve()
+    q_raw = query.strip()
+    q = q_raw.lower()
+    # 0. 拒绝绝对路径 query（防宿主机任意路径读取；仅接受企业/项目相对路径）
+    if Path(q_raw.replace("\\", "/")).is_absolute():
+        return "none", f"仅支持企业名/项目名相对路径，不支持绝对路径: {q_raw}"
     # 1. 精确路径：query 含路径分隔符且对应目录存在 → 精确命中
-    direct = doc_root / query.strip().replace("\\", "/")
-    if ("/" in query or "\\" in query) and direct.is_dir():
+    #    （resolve 后须仍在 doc_root 内且非根目录本身，防 ../ 逃逸）
+    direct = (doc_root_r / q_raw.replace("\\", "/")).resolve()
+    if (
+        ("/" in q_raw or "\\" in q_raw)
+        and direct != doc_root_r
+        and direct.is_relative_to(doc_root_r)
+        and direct.is_dir()
+    ):
         return "hit", direct
     # 2. 企业名 in query
     for comp in companies:
