@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from app.config import PROJECT_ROOT
 from app.tool.project_docs import DOCS_DIR, get_doc, list_projects
 
 
@@ -160,3 +161,35 @@ class TestGetDocLargeDoc:
         result = get_doc("项目A", root=docs_tree)
         assert result.error is not None
         assert "读取文档失败" in result.error
+
+
+class TestExampleDocAssets:
+    """项目根 project_docs/ 下的模板与示例文档资产检查。"""
+
+    def test_example_doc_has_all_sections(self):
+        doc = PROJECT_ROOT / DOCS_DIR / "示例企业" / "示例项目" / "业务说明.md"
+        assert doc.exists()
+        content = doc.read_text(encoding="utf-8")
+        sections = [
+            "项目概述",
+            "涉及数据表",
+            "字段口径说明",
+            "表关联关系",
+            "常用查询 SQL 示例",
+            "注意事项",
+        ]
+        for i, section in enumerate(sections, start=1):
+            assert f"## {i}. {section}" in content
+
+    def test_example_doc_forbids_file_paths(self):
+        doc = PROJECT_ROOT / DOCS_DIR / "示例企业" / "示例项目" / "业务说明.md"
+        content = doc.read_text(encoding="utf-8")
+        assert "不包含任何文件路径" in content
+
+    def test_template_exists_with_sections(self):
+        tpl = PROJECT_ROOT / DOCS_DIR / "TEMPLATE.md"
+        assert tpl.exists()
+        content = tpl.read_text(encoding="utf-8")
+        assert "## 1. 项目概述" in content
+        assert "## 3. 字段口径说明" in content
+        assert "不包含任何文件路径" in content
