@@ -167,6 +167,12 @@ def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="OpenManus MCP Server")
     parser.add_argument(
+        "env",
+        nargs="?",
+        default=None,
+        help="部署环境：dev（默认）或 test，选择 config/config_{env}.toml",
+    )
+    parser.add_argument(
         "--transport",
         choices=["stdio", "sse", "streamable-http"],
         default="stdio",

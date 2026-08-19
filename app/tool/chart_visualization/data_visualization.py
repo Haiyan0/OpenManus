@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import posixpath
 from pathlib import Path
 from typing import Any, Hashable, Optional
 
@@ -107,6 +108,7 @@ Outputs:
                 csv_path = f"{self.workspace_dir}/{csv_path}"
             raw = await self.sandbox.run_command(f"cat {csv_path}")
             from io import StringIO
+
             return pd.read_csv(StringIO(raw))
         else:
             return pd.read_csv(csv_path, encoding="utf-8")
@@ -143,12 +145,30 @@ Outputs:
                 raise Exception(f"No such file or directory: {item[path_str]}")
         return res
 
+    def _to_container_path(self, host_path: str) -> str:
+        """sandbox 模式：宿主机 chart 路径 → 容器内路径（bind mount 映射）。
+
+        Node 在宿主机写 chart（directory=_host_workspace_dir），返回的
+        chart_path 是宿主机绝对路径；容器内 python_execute 只能读到
+        bind mount 后的容器路径（/workspace/...），否则 FileNotFoundError。
+
+        无 sandbox 时原样返回（本地模式读写同一路径空间）。
+        """
+        if self.sandbox is None or not self._host_workspace_dir:
+            return host_path
+        posix_host = str(host_path).replace("\\", "/")
+        posix_root = self._host_workspace_dir.replace("\\", "/").rstrip("/")
+        if posix_host.startswith(posix_root):
+            rel = posix_host[len(posix_root) :].lstrip("/")
+            return posixpath.join(self.workspace_dir, rel)
+        return posix_host
+
     def success_output_template(self, result: list[dict[str, str]]) -> str:
         content = ""
         if len(result) == 0:
             return "Is EMPTY!"
         for item in result:
-            content += f"""## {item['title']}\nChart saved in: {item['chart_path']}"""
+            content += f"""## {item['title']}\nChart saved in: {self._to_container_path(item['chart_path'])}"""
             if "insight_path" in item and item["insight_path"] and "insight_md" in item:
                 content += "\n" + item["insight_md"]
             else:
@@ -243,7 +263,7 @@ Outputs:
             if "error" in result and "chart_path" not in result:
                 error_list.append(f"Error in {chart_path}: {result['error']}")
             else:
-                success_list.append(chart_path)
+                success_list.append(self._to_container_path(chart_path))
         success_template = (
             f"# Charts Update with Insights\n{','.join(success_list)}"
             if len(success_list) > 0

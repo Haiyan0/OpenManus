@@ -1,11 +1,15 @@
 #!/usr/bin/env python
-import argparse
-import asyncio
-import sys
+import entry
 
-from app.agent.mcp import MCPAgent
-from app.config import config
-from app.logger import logger
+entry.apply_env(entry.parse_env())  # 必须先于 app.* import：config 单例在首次 import 时加载
+
+import argparse  # noqa: E402
+import asyncio  # noqa: E402
+import sys  # noqa: E402
+
+from app.agent.mcp import MCPAgent  # noqa: E402
+from app.config import config  # noqa: E402
+from app.logger import logger  # noqa: E402
 
 
 class MCPRunner:
@@ -69,6 +73,12 @@ class MCPRunner:
 def parse_args() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Run the MCP Agent")
+    parser.add_argument(
+        "env",
+        nargs="?",
+        default=None,
+        help="部署环境：dev（默认）或 test，选择 config/config_{env}.toml",
+    )
     parser.add_argument(
         "--connection",
         "-c",

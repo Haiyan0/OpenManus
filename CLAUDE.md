@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-本文件为 Claude Code（claude.ai/code）在此仓库中编写代码时提供指导。
+本文件为 Claude Code（claude.ai/code）在此仓库中编写代码时提供指导。仓库工作指南的补充（安装陷阱、lint、测试要点）见 `AGENTS.md`。
 
 ## Python 环境
 
-当前机台 Python 路径：**C:\Users\hyh\anaconda3\envs\open_manus\python.exe**
+当前机台 Python 路径：**C:\Users\hyh\anaconda3\envs\open_manus\python.exe**（conda 环境，勿用系统 `python` 泛指）
 
 当前工作项目目录：**C:\Code\OpenManus**
 
@@ -34,26 +34,45 @@
 
 OpenManus 是一个受 Manus 启发的开源 AI 智能体框架。它实现了基于 ReAct 模式的智能体，通过工具调用（兼容 OpenAI 的函数调用）来自主完成用户任务——浏览网页、执行 Python、编辑文件、搜索以及与远程 MCP 服务器交互。
 
+本仓库在 upstream（FoundationAgents/OpenManus）基础上深度定制，本地扩展方向：
+
+- **Web 聊天界面** — 多用户 FastAPI 后端（`app/web/`）+ Vue3 前端（`web_ui/`），WebSocket 流式对话，MySQL 持久化 + JWT 认证
+- **企业数据查询** — `CompanyDataLookup` 工具（MySQL / 本地 CSV 双模式）+ QuickQuery / DataAnalysis 智能体
+- **公众号发布** — WechatPublish 智能体 + WechatPublishTool（bun 脚本，依赖自包含）
+- **Docker 沙箱** — Web 层可为智能体注入沙箱，隔离执行 Python/文件操作
+- **多环境配置** — `OPENMANUS_ENV` 选择 `config/config_{env}.toml`（默认 dev），入口脚本经 `entry.py` 桥接
+
 ## 构建与运行命令
 
+### 安装依赖
+
 ```bash
-# 安装依赖（推荐使用 uv）
+# 通用方式（推荐使用 uv）
 uv venv --python 3.12
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 uv pip install -r requirements.txt
 playwright install           # 可选，用于浏览器自动化
+```
 
-# 运行主智能体（交互式）
-python main.py
-python main.py --prompt "你的任务描述"
+本机台已配置 conda 环境 `open_manus`，无需重复安装。
 
-# 运行规划流（多智能体编排）
-python run_flow.py
+### 入口脚本
 
-# 在 Docker 沙箱中运行
-python sandbox_main.py
+所有入口接受可选位置参数 `[dev|test]` 选择部署环境（经 `entry.py` 桥接，默认 `dev`）：
 
-# 运行测试
+| 命令 | 用途 |
+|------|------|
+| `python main.py [dev|test] [--prompt "..."]` | 交互/单任务 Manus 智能体（CLI） |
+| `python run_flow.py [dev|test]` | PlanningFlow 多智能体编排（整体 60 分钟硬超时） |
+| `python web_run.py [dev|test]` | Web 聊天后端，监听 `0.0.0.0:8080`，服务 `web_ui/dist` 前端 |
+| `python sandbox_main.py [dev|test]` | Docker 沙箱版 Manus（SandboxManus） |
+| `python run_mcp.py [dev|test]` | MCP 智能体客户端 |
+| `python run_mcp_server.py [dev|test]` | MCP 服务端 |
+
+### 测试
+
+```bash
+# 运行全部测试
 pytest tests/
 
 # 运行单个测试文件
@@ -62,6 +81,8 @@ pytest tests/sandbox/test_sandbox.py -v
 # 运行单个测试
 pytest tests/sandbox/test_sandbox.py::test_sandbox_python_execution -v
 ```
+
+`pytest.ini` 已启用 `asyncio_mode = auto`，异步测试无需显式 `@pytest.mark.asyncio`。沙箱测试需 Docker Desktop 运行中；web 测试依赖 `[web]` MySQL 配置。
 
 ## 架构
 
@@ -75,9 +96,17 @@ BaseAgent (app/agent/base.py)
               │     BrowserUseTool、StrReplaceEditor、AskHuman，+ 动态 MCP 工具
               ├── SWEAgent (app/agent/swe.py) — 软件工程：Bash、
               │     StrReplaceEditor、Terminate
-              └── DataAnalysis (app/agent/data_analysis.py) — 数据分析：
-                    NormalPythonExecute、VisualizationPrepare、DataVisualization
+              ├── DataAnalysis (app/agent/data_analysis.py) — 数据分析：
+              │     NormalPythonExecute、VisualizationPrepare、DataVisualization
+              ├── QuickQuery (app/agent/quick_query.py) — 轻量数据查询：
+              │     CompanyDataLookup、NormalPythonExecute、AskHuman、Terminate
+              │     （max_steps=15，不生成图表，强调直接给答案）
+              └── WechatPublish (app/agent/wechat_publish.py) — 公众号发布：
+                    WechatPublishTool、NormalPythonExecute、AskHuman、Terminate
+                    （max_steps=30，发布 markdown 到公众号草稿箱）
 ```
+
+另：`SandboxManus`（`app/agent/sandbox_agent.py`）在 Docker 沙箱中运行；DataAnalysis / QuickQuery / WechatPublish 均支持 `set_sandbox()` 由 Web 层注入沙箱。
 
 所有智能体都是 Pydantic 模型（`BaseAgent extends BaseModel`）。执行循环位于 `BaseAgent.run()` 中——通过 `think()` → `act()` 逐步执行，直到达到 `max_steps` 或状态变为 `FINISHED`。状态机：`IDLE → RUNNING → FINISHED | ERROR`。
 
@@ -91,7 +120,7 @@ BaseAgent (app/agent/base.py)
 
 内置关键工具：
 
-- `PythonExecute` / `NormalPythonExecute` — 在子进程中执行 Python
+- `PythonExecute` / `NormalPythonExecute` — 在子进程（或沙箱）中执行 Python
 - `BrowserUseTool` — 基于 Playwright 的网页浏览
 - `StrReplaceEditor` — 具有字符串替换语义的文件查看/编辑
 - `Bash` — Shell 命令执行
@@ -100,6 +129,14 @@ BaseAgent (app/agent/base.py)
 - `Crawl4aiTool` — 网页爬取
 - `CreateChatCompletion` — 子智能体 LLM 调用
 - `Terminate` — 标记智能体完成（特殊工具，设置 `AgentState.FINISHED`）
+
+本地业务工具：
+
+- `CompanyDataLookup`（`app/tool/company_data_lookup.py`）— 企业数据查询，MySQL / 本地 CSV 双模式（由 `[web].data_lookup_mode` 选择），走独立业务数据查询库（`mysql_data_database`）
+- `AskHuman`（`app/tool/ask_human.py`）— 人工询问
+- `WechatPublishTool`（`app/tool/wechat_publish/`）— 公众号发布，bun 脚本依赖自包含
+
+数据读取规范：NormalPythonExecute stdout 注入 50000 字符保护性截断（头 2 万 + 尾 3 万）；数据全量表述走 system 通道，避免被 `max_observe` 截断。
 
 ### LLM 集成（`app/llm.py`）
 
@@ -113,11 +150,40 @@ BaseAgent (app/agent/base.py)
 
 所有方法都包含通过 `tenacity` 实现的重试逻辑（指数退避，最多 6 次）、通过 `TokenLimitExceeded` 实现的 Token 限制强制、以及用于多模态模型的 base64 图像处理。
 
-### 配置（`app/config.py`）
+### 配置（`app/config.py`）— 多环境
 
-基于 TOML 的配置文件，从 `config/config.toml` 加载（从 `config/config.example.toml` 复制）。`Config` 单例将设置加载到 `AppConfig` 中，包含：`LLMSettings`（每个模型名称的字典，包含 base_url、api_key、model、max_tokens、temperature、api_type 用于 azure/aws/ollama/jiekou）、`BrowserSettings`、`SearchSettings`、`SandboxSettings`、`MCPSettings`、`DaytonaSettings` 和 `RunflowSettings`。
+部署环境由 `OPENMANUS_ENV` 环境变量决定（入口脚本位置参数经 `entry.py` 写入该变量），未设置或空白时默认 `dev`。配置文件按 `config/config_{env}.toml` 选择：
 
-MCP 服务器配置在单独的 `config/mcp.json` 文件中——每个服务器有 `type`（sse 或 stdio）、`url`/`command` 和 `args`。
+- `dev` 缺失时回退 `config.example.toml`（保持开箱即用）
+- 非 `dev` 环境缺失时**明确报错**，报错信息包含可用环境清单
+
+本地实际配置文件为 `config/config_dev.toml`、`config/config_test.toml`（均被 `config/.gitignore` 忽略，勿提交）；模板为 `config.example.toml` 及各模型示例（azure/anthropic/google/jiekouai/ollama/ppio/daytona）。
+
+`Config` 单例将设置加载到 `AppConfig` 中，包含：`LLMSettings`（每个模型名称的字典，包含 base_url、api_key、model、max_tokens、temperature、api_type 用于 azure/aws/ollama/jiekou）、`BrowserSettings`、`SearchSettings`、`SandboxSettings`、`MCPSettings`、`WebSettings`（web 子系统配置，含 `data_lookup_mode`、`mysql_data_database` 等）、`DaytonaSettings` 和 `RunflowSettings`。
+
+MCP 服务器配置在 `config/mcp.example.json`（模板），本地 `config/mcp.json`（gitignore）——每个服务器有 `type`（sse 或 stdio）、`url`/`command` 和 `args`。
+
+`.env`（可选）可覆盖 `[web]` 段配置，键名前缀 `OPENMANUS_`（见 `.env.example`）。
+
+### Web 聊天子系统（`app/web/` + `web_ui/`）
+
+`web_run.py` 通过 uvicorn 启动 `app.web.server:app`（`0.0.0.0:8080`）。结构：
+
+```
+app/web/
+├── server.py          # FastAPI 入口 + lifespan（启动清理孤儿沙箱，关闭清理全部沙箱）
+├── auth/              # JWT 认证（models/schemas/router/service）
+├── chat/              # 会话（models/schemas/router/service/ws_handler）
+├── files/             # 文件管理（models/schemas/router/service）
+├── sandbox/           # 沙箱生命周期服务（startup_sandbox_cleanup 等）
+├── agent_runner.py    # 智能体运行调度（按 agent 类型分发）
+├── dependencies.py    # FastAPI 依赖（认证、DB 会话等）
+└── database.py        # MySQL 引擎/连接池
+```
+
+主要端点：`/`（前端 Vue 构建产物）、`/static/`、`WS /ws/{chat_id}?token=`、`/api/auth/*`、`/api/chats/*`、`/api/files/*`。
+
+前端 `web_ui/` 是独立 Vue3 项目（Vite + Pinia + Tailwind）。后端服务 `web_ui/dist` 构建产物，改前端须 `npm run build` 后再重启后端。多用户隔离依赖 MySQL + JWT（`jwt_secret_key` 生产环境必改）。
 
 ### 流系统（多智能体编排）
 
@@ -125,7 +191,7 @@ MCP 服务器配置在单独的 `config/mcp.json` 文件中——每个服务器
 
 ### 沙箱（`app/sandbox/`）
 
-`DockerSandbox`（`app/sandbox/core/sandbox.py`）管理具有资源限制（CPU、内存、网络隔离）的 Docker 容器。它通过 tar 归档提供文件读写功能，通过 `AsyncDockerizedTerminal` 提供命令执行功能，以及清理协议。`LocalSandboxClient`（`app/sandbox/client.py`）以一致接口封装了上述功能，作为模块级别的 `SANDBOX_CLIENT` 单例暴露。
+`DockerSandbox`（`app/sandbox/core/sandbox.py`）管理具有资源限制（CPU、内存、网络隔离）的 Docker 容器。它通过 tar 归档提供文件读写功能，通过 `AsyncDockerizedTerminal` 提供命令执行功能，以及清理协议。`DockerSession`（`app/sandbox/core/terminal.py`）已兼容 docker SDK 7.x 的 NpipeSocket 返回形态，recv 经线程池执行以保留超时语义。`LocalSandboxClient`（`app/sandbox/client.py`）以一致接口封装了上述功能，作为模块级别的 `SANDBOX_CLIENT` 单例暴露。
 
 ### A2A 协议（`protocol/a2a/`）
 
@@ -137,6 +203,7 @@ MCP 服务器配置在单独的 `config/mcp.json` 文件中——每个服务器
 
 ## 关键模式
 
+- **entry.py 启动桥接**：入口脚本必须先 `import entry` 并执行 `entry.apply_env(entry.parse_env())`，且必须在任何 `app.*` import **之前**——config 单例在首次 import 时完成加载，先导入 app 包会让环境变量写入失效。
 - **智能体作为 Pydantic 模型**：智能体使用 `@model_validator(mode="after")` 进行初始化，使用 `Field(default_factory=...)` 处理可变默认值。Manus 智能体需要异步工厂方法 `Manus.create()` 来在创建时设置 MCP 服务器连接。
 - **状态异步上下文管理器**：`BaseAgent.state_context()` 确保安全的状态转换，出错时自动回滚到之前的状态。
 - **特殊工具**：`Terminate().name` 位于 `special_tool_names` 中——执行时，它会将智能体状态设置为 `FINISHED`，结束运行循环。

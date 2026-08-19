@@ -6,7 +6,11 @@ Usage:
     # 访问 http://localhost:8080
 """
 
-import uvicorn
+import entry
+
+entry.apply_env(entry.parse_env())  # 必须先于 uvicorn.run：app.web.server 在 run 时加载
+
+import uvicorn  # noqa: E402
 
 
 def main():

@@ -15,19 +15,21 @@ C:\Users\hyh\anaconda3\envs\open_manus\python.exe
 ## 安装与配置陷阱
 
 - **不要用 `pip install -e .` / `python setup.py`**：`setup.py` 第 4 行 `open("README.md")` 但仓库只有 `README_zh.md`，会直接报 FileNotFoundError。请用 `uv pip install -r requirements.txt`。
-- `config/config.toml` 与 `config/mcp.json` 被 gitignore，**本地已存在**，无需重建。配置示例见 `config/config.example.toml`（含 Azure/Bedrock/Ollama/Jiekou 等多个 `[llm]` 注释模板）。
+- 多环境配置：`OPENMANUS_ENV`（或入口位置参数 `[dev|test]`，经 `entry.py` 桥接）选择 `config/config_{env}.toml`；`dev` 缺失回退 `config.example.toml`，非 `dev` 缺失报错。`config/config_dev.toml`、`config/config_test.toml`、`config/mcp.json` 被 gitignore，**本地已存在**，无需重建。配置模板见 `config/config.example.toml`（含 Azure/Bedrock/Ollama/Jiekou 等多个 `[llm]` 注释模板）。
 - 浏览器自动化可选：`playwright install`。
-- `.env`（可选）覆盖 `config.toml` 的 `[web]` 段，键名前缀 `OPENMANUS_`（见 `.env.example`）。
+- `.env`（可选）覆盖配置文件的 `[web]` 段，键名前缀 `OPENMANUS_`（见 `.env.example`）。
 
 ## 入口脚本
 
 | 命令 | 用途 |
 |------|------|
-| `python main.py [--prompt "..."]` | 交互/单任务 Manus 智能体（CLI） |
-| `python run_flow.py` | PlanningFlow 多智能体编排（**整体 60 分钟硬超时**） |
-| `python web_run.py` | FastAPI Web 后端，监听 `0.0.0.0:8080`，前端见 `web_ui/` |
-| `python sandbox_main.py` | Docker 沙箱版 Manus |
-| `python run_mcp_server.py` / `run_mcp.py` | MCP 服务端 |
+| `python main.py [dev\|test] [--prompt "..."]` | 交互/单任务 Manus 智能体（CLI） |
+| `python run_flow.py [dev\|test]` | PlanningFlow 多智能体编排（**整体 60 分钟硬超时**） |
+| `python web_run.py [dev\|test]` | FastAPI Web 后端，监听 `0.0.0.0:8080`，前端见 `web_ui/` |
+| `python sandbox_main.py [dev\|test]` | Docker 沙箱版 Manus |
+| `python run_mcp_server.py [dev\|test]` / `run_mcp.py [dev\|test]` | MCP 服务端 / MCP 智能体客户端 |
+
+环境位置参数须紧跟脚本名（`python xxx.py dev`），默认 `dev`。
 
 ## Lint / 格式化（提交前必跑）
 
@@ -42,13 +44,13 @@ isort profile=black，且 `--lines-after-imports=2`；autoflake 会移除未用 
 
 ## 测试要点
 
-- **无 pytest 配置文件**（无 `pytest.ini`/`pyproject.toml`/`setup.cfg`）。异步测试用**显式** `@pytest.mark.asyncio` 标记，不要假设 auto 模式。
+- 根目录 `pytest.ini` 已启用 `asyncio_mode = auto`，异步测试**无需**显式 `@pytest.mark.asyncio` 标记。
 - 跑单个测试：`python -m pytest tests/sandbox/test_sandbox.py::test_sandbox_python_execution -v`（用 `-m pytest` 避免入口被 `main.py` 拦截）。
 - **`tests/web/conftest.py` 的 autouse async fixture 不可删**：它在每个异步测试后于同 loop 上 dispose 数据库引擎连接池，否则 aiomysql 连接跨 event loop GC 会触发 `AttributeError: 'NoneType' object has no attribute 'send'`。新增 web 测试需保留。
-- web 测试依赖 `[web]` MySQL 配置；`config.toml` 中 `data_lookup_mode = "local"` 时走 `company_data_resource/`（本地，gitignore），`= "mysql"` 时实时查库。
+- web 测试依赖 `[web]` MySQL 配置；配置文件中 `data_lookup_mode = "local"` 时走 `company_data_resource/`（本地，gitignore），`= "mysql"` 时实时查库。
 - 沙箱测试需 Docker Desktop 运行中。
 
-## Web 子系统（CLAUDE.md 未覆盖）
+## Web 子系统（CLAUDE.md 已覆盖架构，此处补充操作细节）
 
 - 前端是独立 Vue3 项目 `web_ui/`（Vite + Pinia + Tailwind）。`python web_run.py` 服务 `web_ui/dist` 构建产物；改前端须 `npm run build` 后再起后端。
 - 另有 npm 子项目 `app/tool/chart_visualization/`（TypeScript + VChart，由 `DataVisualization` 工具调用），用 ts-node 运行 `src/chartVisualize.ts`。

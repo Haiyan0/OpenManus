@@ -1,11 +1,15 @@
-import asyncio
-import time
+import entry
 
-from app.agent.data_analysis import DataAnalysis
-from app.agent.manus import Manus
-from app.config import config
-from app.flow.flow_factory import FlowFactory, FlowType
-from app.logger import logger
+entry.apply_env(entry.parse_env())  # 必须先于 app.* import：config 单例在首次 import 时加载
+
+import asyncio  # noqa: E402
+import time  # noqa: E402
+
+from app.agent.data_analysis import DataAnalysis  # noqa: E402
+from app.agent.manus import Manus  # noqa: E402
+from app.config import config  # noqa: E402
+from app.flow.flow_factory import FlowFactory, FlowType  # noqa: E402
+from app.logger import logger  # noqa: E402
 
 
 async def run_flow():
