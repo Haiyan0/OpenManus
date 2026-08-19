@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from app.tool.project_docs import DOCS_DIR, list_projects
+from app.tool.project_docs import DOCS_DIR, get_doc, list_projects
 
 
 @pytest.fixture
@@ -55,3 +55,63 @@ class TestListProjects:
         assert result.error is None
         assert "乙企业" in result.output
         assert "甲企业" not in result.output
+
+
+class TestGetDocMatch:
+    def test_exact_path_hit(self, docs_tree):
+        result = get_doc("甲企业/项目A", root=docs_tree)
+        assert result.error is None
+        assert "字段口径说明" in result.output
+        assert "amount" in result.output
+
+    def test_project_name_unique_hit(self, docs_tree):
+        result = get_doc("项目A", root=docs_tree)
+        assert result.error is None
+        assert "amount" in result.output
+
+    def test_case_insensitive(self, docs_tree):
+        result = get_doc("项目a", root=docs_tree)
+        assert result.error is None
+
+    def test_ambiguous_returns_candidates(self, docs_tree):
+        # "项目" 同时命中 项目A/项目B/项目C
+        result = get_doc("项目", root=docs_tree)
+        assert result.error is not None
+        assert "甲企业/项目A" in result.error
+        assert "甲企业/项目B" in result.error
+        assert "乙企业/项目C" in result.error
+
+    def test_no_match_returns_available_list(self, docs_tree):
+        result = get_doc("不存在", root=docs_tree)
+        assert result.error is not None
+        assert "项目A" in result.error
+
+    def test_company_hit_without_project_lists_projects(self, docs_tree):
+        result = get_doc("甲企业", root=docs_tree)
+        assert result.error is not None
+        assert "项目A" in result.error
+
+    def test_empty_query_asks_for_name(self, docs_tree):
+        result = get_doc("", root=docs_tree)
+        assert result.error is not None
+        assert "list_projects" in result.error
+
+    def test_missing_dir_degrades(self, tmp_path):
+        result = get_doc("项目A", root=tmp_path / "nope")
+        assert result.error is not None
+        assert "list_tables" in result.error
+
+
+class TestGetDocContent:
+    def test_multiple_md_joined_in_name_order(self, docs_tree):
+        result = get_doc("项目C", root=docs_tree)
+        assert result.error is None
+        assert "C 字段口径" in result.output
+        assert "C 查询示例" in result.output
+        # 01 在 02 之前
+        assert result.output.index("C 字段口径") < result.output.index("C 查询示例")
+
+    def test_project_without_doc_reports(self, docs_tree):
+        result = get_doc("项目B", root=docs_tree)
+        assert result.error is not None
+        assert "尚未维护" in result.error
