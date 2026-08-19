@@ -56,6 +56,20 @@ class TestListProjects:
         assert "乙企业" in result.output
         assert "甲企业" not in result.output
 
+    def test_company_matched_but_no_projects(self, tmp_path):
+        root = tmp_path / DOCS_DIR
+        (root / "空企业").mkdir(parents=True)
+        result = list_projects(query="空企业", root=root)
+        assert result.error is None
+        assert "空企业" in result.output
+        assert "[无项目目录]" in result.output
+
+    def test_no_company_match_returns_available_list(self, docs_tree):
+        result = list_projects(query="不存在的企业", root=docs_tree)
+        assert result.error is not None
+        assert "甲企业" in result.error
+        assert "乙企业" in result.error
+
 
 class TestGetDocMatch:
     def test_exact_path_hit(self, docs_tree):

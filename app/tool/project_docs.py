@@ -50,16 +50,19 @@ def list_projects(query: str = "", root: Optional[Path] = None) -> ToolResult:
         return ToolResult(
             error=f"项目文档目录 '{doc_root}' 为空，可直接使用 list_tables 查询。"
         )
-    q = (query or "").lower()
+    q = (query or "").strip().lower()
     lines = ["📁 项目业务文档清单:"]
-    total = 0
+    matched_company = False
     for comp in companies:
         if q and q not in comp.name.lower():
             continue
+        matched_company = True
         projects = _subdirs(comp)
         lines.append(f"企业「{comp.name}」:")
+        if not projects:
+            lines.append("  - [无项目目录]")
+            continue
         for proj in projects:
-            total += 1
             mds = sorted(proj.glob("*.md"), key=lambda p: p.name)
             if mds:
                 lines.append(
@@ -67,7 +70,7 @@ def list_projects(query: str = "", root: Optional[Path] = None) -> ToolResult:
                 )
             else:
                 lines.append(f"  - 项目「{proj.name}」[无文档]")
-    if total == 0:
+    if not matched_company:
         return ToolResult(
             error=f"未找到匹配 '{query}' 的企业。可用企业：\n"
             + "\n".join(f"  - {c.name}" for c in companies)
