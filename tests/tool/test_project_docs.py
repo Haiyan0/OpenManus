@@ -129,3 +129,34 @@ class TestGetDocContent:
         result = get_doc("项目B", root=docs_tree)
         assert result.error is not None
         assert "尚未维护" in result.error
+
+
+class TestGetDocLargeDoc:
+    def _make_large_doc(self, docs_tree: Path) -> None:
+        """丁企业/项目D：单文档约 18000 字符。"""
+        (docs_tree / "丁企业" / "项目D").mkdir(parents=True)
+        doc = docs_tree / "丁企业" / "项目D" / "业务说明.md"
+        doc.write_text("字段口径说明\n" + "口径" * 9000, encoding="utf-8")
+
+    def test_large_doc_summary_output_full_system(self, docs_tree):
+        self._make_large_doc(docs_tree)
+        result = get_doc("项目D", root=docs_tree)
+        assert result.error is None
+        # 全文走 system 通道
+        assert result.system is not None
+        assert "口径" * 9000 in result.system
+        assert result.system.startswith("# 项目业务文档全文")
+        # output 只给摘要
+        assert "摘要" in result.output
+        assert "system 通道" in result.output
+        assert len(result.output) < 3000
+        assert "口径" * 9000 not in result.output
+
+    def test_read_error_reports(self, docs_tree, monkeypatch):
+        def boom(self, *args, **kwargs):
+            raise OSError("permission denied")
+
+        monkeypatch.setattr(Path, "read_text", boom)
+        result = get_doc("项目A", root=docs_tree)
+        assert result.error is not None
+        assert "读取文档失败" in result.error

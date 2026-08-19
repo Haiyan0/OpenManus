@@ -167,9 +167,20 @@ def get_doc(query: str, root: Optional[Path] = None) -> ToolResult:
             return ToolResult(error=f"读取文档失败: {f} → {e}")
     full = "\n\n".join(parts)
     source = f"{proj_dir.parent.name}/{proj_dir.name}"
+    if len(full) <= _DOC_OUTPUT_MAX:
+        return ToolResult(
+            output=(
+                f"已读取项目业务文档：{source}（{len(mds)} 个文件，共 {len(full)} 字符）\n"
+                f"{'─' * 60}\n{full}"
+            )
+        )
+    # 大文档：output 给摘要，全文走 system 通道（对齐 list_tables 双通道惯例）
+    summary = full[:_DOC_SUMMARY_MAX]
     return ToolResult(
         output=(
             f"已读取项目业务文档：{source}（{len(mds)} 个文件，共 {len(full)} 字符）\n"
-            f"{'─' * 60}\n{full}"
-        )
+            f"文档较长，以下为开头摘要；完整内容已通过 system 通道提供，请直接据此分析。\n"
+            f"{'─' * 60}\n{summary}..."
+        ),
+        system=f"# 项目业务文档全文（{source}）\n{full}",
     )
