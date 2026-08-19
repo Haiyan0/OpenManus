@@ -11,10 +11,12 @@ import os
 import posixpath
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from app.config import PROJECT_ROOT, config
 from app.logger import logger
+from app.tool import project_docs
 from app.tool.base import BaseTool, ToolResult
 
 
@@ -51,35 +53,42 @@ class CompanyDataLookup(BaseTool):
 
     name: str = "company_data_lookup"
     description: str = (
-        "公司数据查询工具。有两个 action：\n"
-        "1. action='list_tables' — 获取数据库中所有表的表名、字段名、字段类型、注释，"
+        "公司数据查询与项目业务文档工具。有四个 action：\n"
+        "1. action='get_doc' — 读取指定企业/项目的业务说明文档（字段口径、表关联、SQL 示例）。"
+        "用户提到明确的企业/项目名时优先调用，文档口径优先于表注释。"
+        "参数 query_or_sql 传入企业名/项目名。\n"
+        "2. action='list_projects' — 列出所有可用企业/项目及其业务文档状态。"
+        "不确定项目归属时调用。参数 query_or_sql 可传企业名过滤（可空）。\n"
+        "3. action='list_tables' — 获取数据库中所有表的表名、字段名、字段类型、注释，"
         "用于理解哪些数据维度可用。参数 query_or_sql 传入用户的数据分析需求描述。\n"
-        "2. action='query' — 在确认表结构能支撑用户需求后，传入 SELECT SQL 执行查询，"
+        "4. action='query' — 在确认表结构能支撑用户需求后，传入 SELECT SQL 执行查询，"
         "结果保存为 CSV 文件到工作目录。参数 query_or_sql 传入完整的 SELECT 语句。\n"
-        "使用流程：先 list_tables 了解数据结构 → 确认数据能否支撑用户需求 "
-        "→ 再 query 执行查询 → 用 python_execute 读取 CSV 继续分析。"
+        "使用流程：用户提到企业/项目名 → 先 get_doc 读项目业务文档 "
+        "→ list_tables 核对表结构 → query 执行查询 → 用 python_execute 读取 CSV 继续分析。"
     )
     parameters: dict = {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["list_tables", "query"],
+                "enum": ["list_projects", "get_doc", "list_tables", "query"],
                 "description": (
-                    "操作类型: 'list_tables' 获取数据库全部表结构（表名+字段+注释），"
+                    "操作类型: 'get_doc' 读取项目业务文档；'list_projects' 列出可用项目；"
+                    "'list_tables' 获取数据库全部表结构（表名+字段+注释）；"
                     "'query' 执行 SELECT 语句并将结果保存为 CSV"
                 ),
             },
             "query_or_sql": {
                 "type": "string",
                 "description": (
-                    "当 action='list_tables' 时，传入用户的数据分析需求描述"
-                    "（用于帮助理解上下文）；"
+                    "当 action='get_doc' 时，传入企业名/项目名（如 '甲企业/项目A' 或 '项目A'）；"
+                    "当 action='list_projects' 时，可传企业名过滤（可空）；"
+                    "当 action='list_tables' 时，传入用户的数据分析需求描述；"
                     "当 action='query' 时，传入完整的 SELECT SQL 语句"
                 ),
             },
         },
-        "required": ["action", "query_or_sql"],
+        "required": ["action"],
     }
 
     # ── Sandbox 注入属性 ────────────────────────────────────
@@ -93,6 +102,9 @@ class CompanyDataLookup(BaseTool):
     # 公司数据资源目录（local 模式使用，相对于项目根目录）
     DATA_DIR: str = "company_data_resource"
 
+    # 项目业务文档根目录（测试注入用；None 时走 project_docs 默认 PROJECT_ROOT / DOCS_DIR）
+    docs_root: Optional[Path] = None
+
     def __init__(self, **data):
         super().__init__(**data)
 
@@ -100,18 +112,26 @@ class CompanyDataLookup(BaseTool):
     #  公开入口
     # =================================================================
 
-    async def execute(self, action: str, query_or_sql: str) -> ToolResult:
+    async def execute(self, action: str, query_or_sql: str = "") -> ToolResult:
         """执行数据查询操作。
 
         根据 config.web.data_lookup_mode 分发到 local 或 mysql 模式。
+        list_projects / get_doc 为项目业务文档 action，与数据模式无关，优先分发。
 
         Args:
-            action: "list_tables" 或 "query"
-            query_or_sql: 用户需求描述（list_tables）或 SELECT 语句（query）
+            action: "list_tables"、"query"、"list_projects" 或 "get_doc"
+            query_or_sql: 用户需求描述（list_tables）或 SELECT 语句（query）；
+                或企业/项目名（get_doc）、可空（list_projects）
 
         Returns:
             ToolResult: 成功时 output 包含数据，失败时 error 包含原因
         """
+        # ── 项目业务文档 action：与数据模式无关，优先分发 ──
+        if action == "list_projects":
+            return project_docs.list_projects(query_or_sql or "", root=self.docs_root)
+        if action == "get_doc":
+            return project_docs.get_doc(query_or_sql or "", root=self.docs_root)
+
         mode = getattr(config.web, "data_lookup_mode", "local")
 
         if mode == "local":

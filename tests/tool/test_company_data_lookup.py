@@ -429,3 +429,46 @@ class TestListTablesSystemChannel:
         assert "fa_user" in result.output
         assert "id (bigint unsigned)" not in result.output
         assert "amount (decimal(10,2))" not in result.output
+
+
+class TestExecuteProjectDocActions:
+    """execute 对 list_projects / get_doc 的分发测试。"""
+
+    async def test_execute_get_doc_routes(self, tmp_path):
+        root = tmp_path / "docs"
+        (root / "甲企业" / "项目A").mkdir(parents=True)
+        (root / "甲企业" / "项目A" / "业务说明.md").write_text(
+            "字段口径示例", encoding="utf-8"
+        )
+        tool = CompanyDataLookup(docs_root=root)
+
+        result = await tool.execute("get_doc", "项目A")
+
+        assert result.error is None
+        assert "字段口径示例" in result.output
+
+    async def test_execute_list_projects_routes(self, tmp_path):
+        root = tmp_path / "docs"
+        (root / "甲企业" / "项目A").mkdir(parents=True)
+        (root / "甲企业" / "项目A" / "业务说明.md").write_text("x", encoding="utf-8")
+        tool = CompanyDataLookup(docs_root=root)
+
+        result = await tool.execute("list_projects", "")
+
+        assert result.error is None
+        assert "甲企业" in result.output
+
+
+class TestToolSchemaDocActions:
+    """description / parameters 应暴露新 action。"""
+
+    def test_description_mentions_doc_actions(self):
+        tool = CompanyDataLookup()
+        assert "get_doc" in tool.description
+        assert "list_projects" in tool.description
+
+    def test_parameters_include_doc_actions(self):
+        tool = CompanyDataLookup()
+        enum = tool.parameters["properties"]["action"]["enum"]
+        assert enum == ["list_projects", "get_doc", "list_tables", "query"]
+        assert tool.parameters["required"] == ["action"]
