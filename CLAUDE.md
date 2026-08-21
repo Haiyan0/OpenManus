@@ -60,14 +60,14 @@ playwright install           # 可选，用于浏览器自动化
 
 所有入口接受可选位置参数 `[dev|test]` 选择部署环境（经 `entry.py` 桥接，默认 `dev`）：
 
-| 命令 | 用途 |
-|------|------|
-| `python main.py [dev|test] [--prompt "..."]` | 交互/单任务 Manus 智能体（CLI） |
-| `python run_flow.py [dev|test]` | PlanningFlow 多智能体编排（整体 60 分钟硬超时） |
-| `python web_run.py [dev|test]` | Web 聊天后端，监听 `0.0.0.0:8080`，服务 `web_ui/dist` 前端 |
-| `python sandbox_main.py [dev|test]` | Docker 沙箱版 Manus（SandboxManus） |
-| `python run_mcp.py [dev|test]` | MCP 智能体客户端 |
-| `python run_mcp_server.py [dev|test]` | MCP 服务端 |
+| 命令                           | 用途                    |
+| ------------------------------ | ----------------------- |
+| `python main.py [dev           | test] [--prompt "..."]` |
+| `python run_flow.py [dev       | test]`                  |
+| `python web_run.py [dev        | test]`                  |
+| `python sandbox_main.py [dev   | test]`                  |
+| `python run_mcp.py [dev        | test]`                  |
+| `python run_mcp_server.py [dev | test]`                  |
 
 ### 测试
 

@@ -431,6 +431,83 @@ class TestListTablesSystemChannel:
         assert "amount (decimal(10,2))" not in result.output
 
 
+class TestListTablesFilter:
+    """_list_tables 表名过滤测试（按需加载文档涉及表，避免全库 schema 进上下文）。"""
+
+    class _FakeCursor:
+        def __init__(self):
+            self.executed = None
+
+        def execute(self, sql, params=None):
+            self.executed = (sql, params)
+
+        def fetchall(self):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    class _FakeConn:
+        def __init__(self):
+            self.c = TestListTablesFilter._FakeCursor()
+
+        def cursor(self):
+            return self.c
+
+        def close(self):
+            pass
+
+    def _make_tool(self, monkeypatch):
+        monkeypatch.setattr(config.web, "mysql_data_database", "dev_data")
+        fake = self._FakeConn()
+        tool = CompanyDataLookup()
+        monkeypatch.setattr(tool, "_get_connection", lambda: fake)
+        return tool, fake
+
+    def test_filter_adds_table_in_clause(self, monkeypatch):
+        """传入表名时 SQL 应加 TABLE_NAME IN 过滤，表名按逗号拆分参数化。"""
+        tool, fake = self._make_tool(monkeypatch)
+
+        tool._list_tables("fa_orders, fa_user")
+
+        assert "t.TABLE_NAME IN" in fake.c.executed[0]
+        assert fake.c.executed[1] == ("dev_data", "fa_orders", "fa_user")
+
+    def test_blank_filter_keeps_full_dump(self, monkeypatch):
+        """过滤为空/空白时保持原行为（仅 TABLE_SCHEMA 参数，返回全部表）。"""
+        tool, fake = self._make_tool(monkeypatch)
+
+        tool._list_tables("  ")
+
+        assert "t.TABLE_NAME IN" not in fake.c.executed[0]
+        assert fake.c.executed[1] == ("dev_data",)
+
+    def test_filter_no_match_reports_hint(self, monkeypatch):
+        """过滤后无表时返回错误，提示可用不带过滤的 list_tables 重试。"""
+        tool, fake = self._make_tool(monkeypatch)
+
+        result = tool._list_tables("not_exists")
+
+        assert result.error is not None
+        assert "not_exists" in result.error
+        assert "list_tables" in result.error
+
+    async def test_execute_mysql_passes_filter(self, monkeypatch):
+        """_execute_mysql(list_tables) 应将 query_or_sql 作为过滤传给 _list_tables。"""
+        tool = CompanyDataLookup()
+        captured = {}
+        monkeypatch.setattr(
+            tool, "_list_tables", lambda tables="": captured.setdefault("t", tables)
+        )
+
+        await tool._execute_mysql("list_tables", "fa_orders")
+
+        assert captured["t"] == "fa_orders"
+
+
 class TestExecuteProjectDocActions:
     """execute 对 list_projects / get_doc 的分发测试。"""
 

@@ -59,12 +59,13 @@ class CompanyDataLookup(BaseTool):
         "参数 query_or_sql 传入企业名/项目名。\n"
         "2. action='list_projects' — 列出所有可用企业/项目及其业务文档状态。"
         "不确定项目归属时调用。参数 query_or_sql 可传企业名过滤（可空）。\n"
-        "3. action='list_tables' — 获取数据库中所有表的表名、字段名、字段类型、注释，"
-        "用于理解哪些数据维度可用。参数 query_or_sql 传入用户的数据分析需求描述。\n"
+        "3. action='list_tables' — 获取数据库表结构（表名、字段名、字段类型、注释），"
+        "用于核对字段。参数 query_or_sql 传表名过滤（逗号分隔，可空=全部表；"
+        "已读项目文档时优先传文档「涉及数据表」中的表，只加载这些表）。\n"
         "4. action='query' — 在确认表结构能支撑用户需求后，传入 SELECT SQL 执行查询，"
         "结果保存为 CSV 文件到工作目录。参数 query_or_sql 传入完整的 SELECT 语句。\n"
         "使用流程：用户提到企业/项目名 → 先 get_doc 读项目业务文档 "
-        "→ list_tables 核对表结构 → query 执行查询 → 用 python_execute 读取 CSV 继续分析。"
+        "→ list_tables 按表名过滤核对表结构 → query 执行查询 → 用 python_execute 读取 CSV 继续分析。"
     )
     parameters: dict = {
         "type": "object",
@@ -74,7 +75,7 @@ class CompanyDataLookup(BaseTool):
                 "enum": ["list_projects", "get_doc", "list_tables", "query"],
                 "description": (
                     "操作类型: 'get_doc' 读取项目业务文档；'list_projects' 列出可用项目；"
-                    "'list_tables' 获取数据库全部表结构（表名+字段+注释）；"
+                    "'list_tables' 获取数据库表结构（表名+字段+注释，可按表名过滤）；"
                     "'query' 执行 SELECT 语句并将结果保存为 CSV"
                 ),
             },
@@ -83,7 +84,7 @@ class CompanyDataLookup(BaseTool):
                 "description": (
                     "当 action='get_doc' 时，传入企业名/项目名（如 '甲企业/项目A' 或 '项目A'）；"
                     "当 action='list_projects' 时，可传企业名过滤（可空）；"
-                    "当 action='list_tables' 时，传入用户的数据分析需求描述；"
+                    "当 action='list_tables' 时，传表名过滤（逗号分隔，可空=全部表）；"
                     "当 action='query' 时，传入完整的 SELECT SQL 语句"
                 ),
             },
@@ -120,8 +121,8 @@ class CompanyDataLookup(BaseTool):
 
         Args:
             action: "list_tables"、"query"、"list_projects" 或 "get_doc"
-            query_or_sql: 用户需求描述（list_tables）或 SELECT 语句（query）；
-                或企业/项目名（get_doc）、可空（list_projects）
+            query_or_sql: SELECT 语句（query）；企业/项目名（get_doc）；
+                表名过滤（list_tables，逗号分隔，可空=全部表）；可空（list_projects）
 
         Returns:
             ToolResult: 成功时 output 包含数据，失败时 error 包含原因
@@ -269,7 +270,7 @@ class CompanyDataLookup(BaseTool):
             query_or_sql: 用户需求描述或 SELECT 语句
         """
         if action == "list_tables":
-            return await asyncio.to_thread(self._list_tables)
+            return await asyncio.to_thread(self._list_tables, query_or_sql)
         elif action == "query":
             return await asyncio.to_thread(self._execute_query, query_or_sql)
         else:
@@ -328,14 +329,27 @@ class CompanyDataLookup(BaseTool):
 
     # ── 数据字典查询 ────────────────────────────────────────
 
-    def _list_tables(self) -> ToolResult:
-        """从 MySQL information_schema 查询所有表结构，格式化返回。
+    def _list_tables(self, tables: str = "") -> ToolResult:
+        """从 MySQL information_schema 查询表结构，格式化返回。
 
         在线程池中同步执行（由 _execute_mysql 的 asyncio.to_thread 包裹）。
+
+        Args:
+            tables: 可选表名过滤（逗号分隔，支持中文逗号）；空则返回全部表
 
         Returns:
             ToolResult: 成功时 output 为格式化的数据字典
         """
+        filters = [
+            t.strip() for t in (tables or "").replace("，", ",").split(",") if t.strip()
+        ]
+        where_sql = "WHERE t.TABLE_SCHEMA = %s AND t.TABLE_TYPE = 'BASE TABLE'"
+        params = [self._data_database()]
+        if filters:
+            placeholders = ", ".join(["%s"] * len(filters))
+            where_sql += f" AND t.TABLE_NAME IN ({placeholders})"
+            params.extend(filters)
+
         sql = (
             "SELECT "
             "  t.TABLE_NAME, "
@@ -354,8 +368,7 @@ class CompanyDataLookup(BaseTool):
             "JOIN information_schema.COLUMNS c "
             "  ON t.TABLE_SCHEMA = c.TABLE_SCHEMA "
             " AND t.TABLE_NAME = c.TABLE_NAME "
-            "WHERE t.TABLE_SCHEMA = %s "
-            "  AND t.TABLE_TYPE = 'BASE TABLE' "
+            f"{where_sql} "
             "ORDER BY t.TABLE_NAME, c.ORDINAL_POSITION"
         )
 
@@ -363,10 +376,15 @@ class CompanyDataLookup(BaseTool):
         try:
             conn = self._get_connection()
             with conn.cursor() as cursor:
-                cursor.execute(sql, (self._data_database(),))
+                cursor.execute(sql, tuple(params))
                 rows = cursor.fetchall()
 
             if not rows:
+                if filters:
+                    return self.fail_response(
+                        f"数据库中未找到表: {', '.join(filters)}。"
+                        f"请调用 action='list_tables'（不传表名）查看全部可用表后重试。"
+                    )
                 return self.fail_response(
                     f"数据库 '{self._data_database()}' 中未找到任何用户表。" f"请确认数据库中已创建业务数据表。"
                 )
