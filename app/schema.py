@@ -163,16 +163,26 @@ class Memory(BaseModel):
     def add_message(self, message: Message) -> None:
         """Add a message to memory"""
         self.messages.append(message)
-        # Optional: Implement message limit
-        if len(self.messages) > self.max_messages:
-            self.messages = self.messages[-self.max_messages :]
+        self._trim()
 
     def add_messages(self, messages: List[Message]) -> None:
         """Add multiple messages to memory"""
         self.messages.extend(messages)
-        # Optional: Implement message limit
+        self._trim()
+
+    def _trim(self) -> None:
+        """超过 max_messages 时从头部截断，并丢弃开头的孤儿 tool 消息。
+
+        tool 消息必须紧跟其 assistant tool_calls（API 400 校验：
+        "Messages with role 'tool' must be a response to a preceding
+        message with 'tool_calls'"）。朴素截断可能把 assistant(tool_calls)
+        截掉而留下其 tool 响应，导致整轮 API 调用失败；因此截断后
+        继续丢弃开头的孤儿 tool 消息，保证消息序列始终合法。
+        """
         if len(self.messages) > self.max_messages:
             self.messages = self.messages[-self.max_messages :]
+        while self.messages and self.messages[0].role == Role.TOOL:
+            self.messages.pop(0)
 
     def clear(self) -> None:
         """Clear all messages"""
