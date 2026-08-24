@@ -49,6 +49,7 @@ RUN pip install --no-cache-dir \
     seaborn~=0.13 \
     scikit-learn~=1.5 \
     scipy~=1.14 \
+    plotly~=5.18 \
     && python -c "import pandas, numpy, matplotlib; print('✓ Data analysis packages OK')"
 
 # matplotlib 默认字体指向 Noto Sans CJK SC
