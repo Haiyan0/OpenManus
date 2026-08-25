@@ -18,7 +18,7 @@
       @send-human-response="sendHumanResponse"
       @toggle-files="showFilesPanel = !showFilesPanel"
     />
-    <div v-else class="flex-1 flex items-center justify-center text-gray-400">
+    <div v-else class="flex-1 flex items-center justify-center text-gray-500">
       <p>选择一个会话或新建一个开始</p>
     </div>
     <!-- 文件下载面板 -->

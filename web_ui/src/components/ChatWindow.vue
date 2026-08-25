@@ -1,51 +1,57 @@
 <template>
   <div class="flex-1 flex flex-col h-screen">
-    <!-- 顶栏 -->
-    <header class="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between shrink-0">
+    <!-- 顶栏（毛玻璃） -->
+    <header class="bg-panel/80 backdrop-blur-xl border-b border-white/10 px-6 py-3 flex items-center justify-between shrink-0">
       <div>
-        <h2 class="font-semibold text-gray-800">{{ title }}</h2>
-        <p class="text-xs text-gray-400">Agent: {{ agentType }} · {{ running ? '运行中' : '就绪' }}</p>
+        <h2 class="font-semibold text-gray-100">{{ title }}</h2>
+        <p class="text-xs text-gray-500">Agent: {{ agentType }} · {{ running ? '运行中' : '就绪' }}</p>
       </div>
       <div class="flex items-center gap-3">
         <button
           @click="$emit('toggleFiles')"
-          class="text-sm px-3 py-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600 transition-colors"
+          class="text-sm px-3 py-1.5 rounded-lg neon-border-btn"
           title="打开/关闭文件面板"
         >📁 文件</button>
-        <span v-if="running" class="flex items-center gap-1 text-sm text-yellow-600">
-          <span class="animate-spin inline-block w-3 h-3 border-2 border-yellow-600 border-t-transparent rounded-full"></span>
+        <span
+          v-if="running"
+          class="flex items-center gap-1.5 text-sm text-yellow-300"
+        >
+          <span class="animate-spin inline-block w-3 h-3 border-2 border-yellow-300 border-t-transparent rounded-full"></span>
           运行中
         </span>
-        <span v-else class="text-sm text-green-600">⚡ 就绪</span>
+        <span v-else class="flex items-center gap-1.5 text-sm text-cyan-300">
+          <span class="animate-pulse-glow inline-block w-2 h-2 rounded-full bg-cyan-400 shadow-glow"></span>
+          就绪
+        </span>
       </div>
     </header>
 
     <!-- 消息区 -->
     <main ref="msgContainer" class="flex-1 overflow-y-auto px-4 py-6 space-y-2">
-      <div v-if="messages.length === 0" class="flex flex-col items-center justify-center h-full text-gray-400">
+      <div v-if="messages.length === 0" class="flex flex-col items-center justify-center h-full text-gray-500">
         <span class="text-5xl mb-4">🤖</span>
-        <p>在下方输入你的任务</p>
-        <p class="text-xs mt-2 text-gray-300">支持上传 CSV/Excel 等数据文件，Agent 会自动读取分析</p>
+        <p class="text-gray-400">在下方输入你的任务</p>
+        <p class="text-xs mt-2 text-gray-600">支持上传 CSV/Excel 等数据文件，Agent 会自动读取分析</p>
       </div>
       <MessageBubble v-for="(msg, i) in messages" :key="i" :msg="msg" />
     </main>
 
-    <!-- 输入 -->
-    <footer class="bg-white border-t border-gray-200 px-4 py-3 shrink-0">
+    <!-- 输入区（毛玻璃） -->
+    <footer class="bg-panel/80 backdrop-blur-xl border-t border-white/10 px-4 py-3 shrink-0">
       <!-- ask_human 回复区 -->
-      <div v-if="waitingForHuman" class="max-w-3xl mx-auto mb-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
-        <p class="text-xs text-amber-600 mb-2">🤔 Agent 正在等待你的回复...</p>
+      <div v-if="waitingForHuman" class="max-w-3xl mx-auto mb-2 p-3 bg-amber-500/10 border border-amber-400/30 rounded-xl">
+        <p class="text-xs text-amber-300 mb-2">🤔 Agent 正在等待你的回复...</p>
         <div class="flex gap-2">
           <input
             v-model="humanInput"
             @keydown.enter="replyHuman"
             placeholder="在此输入回复..."
-            class="flex-1 border border-amber-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+            class="flex-1 bg-white/5 border border-amber-400/30 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-amber-400/60"
           />
           <button
             @click="replyHuman"
             :disabled="!humanInput.trim()"
-            class="bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+            class="bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-white rounded-lg px-4 py-2 text-sm font-medium transition-all"
           >回复</button>
         </div>
       </div>
@@ -55,13 +61,13 @@
         <div
           v-for="(f, i) in uploadedFiles"
           :key="i"
-          class="inline-flex items-center gap-1.5 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1 text-xs text-blue-700"
+          class="inline-flex items-center gap-1.5 bg-cyan-400/10 border border-cyan-400/30 rounded-lg px-3 py-1 text-xs text-cyan-300"
         >
           <span>{{ fileIcon(f.name) }}</span>
           <span class="max-w-[120px] truncate" :title="f.name">{{ f.name }}</span>
           <button
             @click="removeFile(i)"
-            class="text-blue-400 hover:text-red-500 transition-colors ml-0.5"
+            class="text-cyan-400/70 hover:text-red-400 transition-colors ml-0.5"
             title="移除"
           >✕</button>
         </div>
@@ -70,7 +76,7 @@
       <div class="flex gap-2 max-w-3xl mx-auto">
         <!-- 上传按钮 -->
         <label
-          class="flex items-center justify-center w-10 h-10 rounded-xl border border-gray-300 hover:bg-gray-50 cursor-pointer transition-colors shrink-0"
+          class="flex items-center justify-center w-10 h-10 rounded-xl border border-white/15 hover:bg-white/5 hover:border-purple-400/50 cursor-pointer transition-all shrink-0"
           :class="{ 'opacity-50 pointer-events-none': running }"
           title="上传数据文件"
         >
@@ -90,15 +96,15 @@
           @keydown.enter="send"
           :disabled="running"
           placeholder="输入你的任务，按 Enter 发送..."
-          class="flex-1 border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+          class="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-gray-100 placeholder:text-gray-600 focus:outline-none focus:ring-2 focus:ring-purple-400/60 focus:border-transparent disabled:opacity-50 transition-all"
         />
         <button
           @click="send"
           :disabled="running || !input.trim()"
-          class="bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white rounded-xl px-5 py-2.5 text-sm font-medium transition-colors"
+          class="gradient-primary hover:opacity-90 hover:shadow-glow disabled:opacity-40 disabled:shadow-none text-white rounded-xl px-5 py-2.5 text-sm font-medium transition-all"
         >发送 ▶</button>
       </div>
-      <p class="text-xs text-gray-400 text-center mt-1.5 max-w-3xl mx-auto">
+      <p class="text-xs text-gray-600 text-center mt-1.5 max-w-3xl mx-auto">
         支持上传 CSV、Excel、JSON、TXT 文件。文件仅在当前会话有效，关闭页面后自动清除。
       </p>
     </footer>
