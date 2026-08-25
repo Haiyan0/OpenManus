@@ -17,7 +17,6 @@ C:\Users\hyh\anaconda3\envs\open_manus\python.exe
 - **不要用 `pip install -e .` / `python setup.py`**：`setup.py` 第 4 行 `open("README.md")` 但仓库只有 `README_zh.md`，会直接报 FileNotFoundError。请用 `uv pip install -r requirements.txt`。
 - 多环境配置：`OPENMANUS_ENV`（或入口位置参数 `[dev|test]`，经 `entry.py` 桥接）选择 `config/config_{env}.toml`；`dev` 缺失回退 `config.example.toml`，非 `dev` 缺失报错。`config/config_dev.toml`、`config/config_test.toml`、`config/mcp.json` 被 gitignore，**本地已存在**，无需重建。配置模板见 `config/config.example.toml`（含 Azure/Bedrock/Ollama/Jiekou 等多个 `[llm]` 注释模板）。
 - 浏览器自动化可选：`playwright install`。
-- `.env`（可选）覆盖配置文件的 `[web]` 段，键名前缀 `OPENMANUS_`（见 `.env.example`）。
 
 ## 入口脚本
 
@@ -26,7 +25,6 @@ C:\Users\hyh\anaconda3\envs\open_manus\python.exe
 | `python main.py [dev\|test] [--prompt "..."]` | 交互/单任务 Manus 智能体（CLI） |
 | `python run_flow.py [dev\|test]` | PlanningFlow 多智能体编排（**整体 60 分钟硬超时**） |
 | `python web_run.py [dev\|test]` | FastAPI Web 后端，监听 `0.0.0.0:8080`，前端见 `web_ui/` |
-| `python sandbox_main.py [dev\|test]` | Docker 沙箱版 Manus |
 | `python run_mcp_server.py [dev\|test]` / `run_mcp.py [dev\|test]` | MCP 服务端 / MCP 智能体客户端 |
 
 环境位置参数须紧跟脚本名（`python xxx.py dev`），默认 `dev`。

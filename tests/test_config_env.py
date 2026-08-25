@@ -2,8 +2,7 @@
 
 config.llm 的 "default" 键由 [llm] 段顶层标量构成（见 app/config.py
 _load_initial_config 的 default_settings 合并逻辑），因此假 toml 只需
-[llm] 顶层字段 + [daytona] 最小段（daytona_api_key 必填）即可断言
-config.llm["default"].model。
+[llm] 顶层字段即可断言 config.llm["default"].model。
 """
 import os
 
@@ -41,8 +40,7 @@ def fake_config_dir(tmp_path, monkeypatch):
 def _write(cfg_dir, name, model):
     (cfg_dir / name).write_text(
         f'[llm]\nmodel = "{model}"\nbase_url = "u"\napi_key = "k"\n'
-        'api_type = "openai"\napi_version = ""\n'
-        '[daytona]\ndaytona_api_key = "k"\n',
+        'api_type = "openai"\napi_version = ""\n',
         encoding="utf-8",
     )
 

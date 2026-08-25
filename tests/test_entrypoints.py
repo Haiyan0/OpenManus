@@ -1,4 +1,4 @@
-"""六个启动入口的 env 桥接接入验证。
+"""五个启动入口的 env 桥接接入验证。
 
 用 importlib 以非 __main__ 模块名导入入口文件，只触发模块级桥接代码
 （entry.apply_env(entry.parse_env())），不执行 if __name__ 块。导入会触发
@@ -17,7 +17,6 @@ ENTRY_FILES = [
     "run_flow.py",
     "run_mcp.py",
     "run_mcp_server.py",
-    "sandbox_main.py",
     "web_run.py",
 ]
 

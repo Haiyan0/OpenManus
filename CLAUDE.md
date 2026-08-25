@@ -65,7 +65,6 @@ playwright install           # 可选，用于浏览器自动化
 | `python main.py [dev           | test] [--prompt "..."]` |
 | `python run_flow.py [dev       | test]`                  |
 | `python web_run.py [dev        | test]`                  |
-| `python sandbox_main.py [dev   | test]`                  |
 | `python run_mcp.py [dev        | test]`                  |
 | `python run_mcp_server.py [dev | test]`                  |
 
@@ -94,8 +93,6 @@ BaseAgent (app/agent/base.py)
         └── ToolCallAgent (app/agent/toolcall.py) — LLM 工具/函数调用
               ├── Manus (app/agent/manus.py) — 通用型：PythonExecute、
               │     BrowserUseTool、StrReplaceEditor、AskHuman，+ 动态 MCP 工具
-              ├── SWEAgent (app/agent/swe.py) — 软件工程：Bash、
-              │     StrReplaceEditor、Terminate
               ├── DataAnalysis (app/agent/data_analysis.py) — 数据分析：
               │     NormalPythonExecute、VisualizationPrepare、DataVisualization
               ├── QuickQuery (app/agent/quick_query.py) — 轻量数据查询：
@@ -106,7 +103,7 @@ BaseAgent (app/agent/base.py)
                     （max_steps=30，发布 markdown 到公众号草稿箱）
 ```
 
-另：`SandboxManus`（`app/agent/sandbox_agent.py`）在 Docker 沙箱中运行；DataAnalysis / QuickQuery / WechatPublish 均支持 `set_sandbox()` 由 Web 层注入沙箱。
+DataAnalysis / QuickQuery / WechatPublish 均支持 `set_sandbox()` 由 Web 层注入 Docker 沙箱。
 
 所有智能体都是 Pydantic 模型（`BaseAgent extends BaseModel`）。执行循环位于 `BaseAgent.run()` 中——通过 `think()` → `act()` 逐步执行，直到达到 `max_steps` 或状态变为 `FINISHED`。状态机：`IDLE → RUNNING → FINISHED | ERROR`。
 
@@ -126,7 +123,6 @@ BaseAgent (app/agent/base.py)
 - `Bash` — Shell 命令执行
 - `WebSearch` — 带引擎回退的网页搜索（Google → DuckDuckGo → Baidu → Bing）
 - `PlanningTool` — 创建/标记/更新计划（由 PlanningFlow 使用）
-- `Crawl4aiTool` — 网页爬取
 - `CreateChatCompletion` — 子智能体 LLM 调用
 - `Terminate` — 标记智能体完成（特殊工具，设置 `AgentState.FINISHED`）
 
@@ -157,13 +153,11 @@ BaseAgent (app/agent/base.py)
 - `dev` 缺失时回退 `config.example.toml`（保持开箱即用）
 - 非 `dev` 环境缺失时**明确报错**，报错信息包含可用环境清单
 
-本地实际配置文件为 `config/config_dev.toml`、`config/config_test.toml`（均被 `config/.gitignore` 忽略，勿提交）；模板为 `config.example.toml` 及各模型示例（azure/anthropic/google/jiekouai/ollama/ppio/daytona）。
+本地实际配置文件为 `config/config_dev.toml`、`config/config_test.toml`（均被 `config/.gitignore` 忽略，勿提交）；模板为 `config.example.toml` 及各模型示例（azure/anthropic/google/jiekouai/ollama/ppio）。
 
-`Config` 单例将设置加载到 `AppConfig` 中，包含：`LLMSettings`（每个模型名称的字典，包含 base_url、api_key、model、max_tokens、temperature、api_type 用于 azure/aws/ollama/jiekou）、`BrowserSettings`、`SearchSettings`、`SandboxSettings`、`MCPSettings`、`WebSettings`（web 子系统配置，含 `data_lookup_mode`、`mysql_data_database` 等）、`DaytonaSettings` 和 `RunflowSettings`。
+`Config` 单例将设置加载到 `AppConfig` 中，包含：`LLMSettings`（每个模型名称的字典，包含 base_url、api_key、model、max_tokens、temperature、api_type 用于 azure/aws/ollama/jiekou）、`BrowserSettings`、`SearchSettings`、`SandboxSettings`、`MCPSettings`、`WebSettings`（web 子系统配置，含 `data_lookup_mode`、`mysql_data_database` 等）和 `RunflowSettings`。
 
 MCP 服务器配置在 `config/mcp.example.json`（模板），本地 `config/mcp.json`（gitignore）——每个服务器有 `type`（sse 或 stdio）、`url`/`command` 和 `args`。
-
-`.env`（可选）可覆盖 `[web]` 段配置，键名前缀 `OPENMANUS_`（见 `.env.example`）。
 
 ### Web 聊天子系统（`app/web/` + `web_ui/`）
 
@@ -192,10 +186,6 @@ app/web/
 ### 沙箱（`app/sandbox/`）
 
 `DockerSandbox`（`app/sandbox/core/sandbox.py`）管理具有资源限制（CPU、内存、网络隔离）的 Docker 容器。它通过 tar 归档提供文件读写功能，通过 `AsyncDockerizedTerminal` 提供命令执行功能，以及清理协议。`DockerSession`（`app/sandbox/core/terminal.py`）已兼容 docker SDK 7.x 的 NpipeSocket 返回形态，recv 经线程池执行以保留超时语义。`LocalSandboxClient`（`app/sandbox/client.py`）以一致接口封装了上述功能，作为模块级别的 `SANDBOX_CLIENT` 单例暴露。
-
-### A2A 协议（`protocol/a2a/`）
-
-基于 FastAPI 的智能体间通信服务器，允许 OpenManus 智能体作为 HTTP 服务暴露，供其他智能体调用。
 
 ### 数据模型（`app/schema.py`）
 

@@ -2,7 +2,7 @@
 
 > 适用版本：当前 `feat/web-chat` 分支
 > 目标读者：初级程序员及以上
-> 最后更新：2026-07-14
+> 最后更新：2026-08-25
 
 ---
 
@@ -11,59 +11,57 @@
 1. [架构总览](#1-架构总览)
 2. [本地多进程执行（当前默认）](#2-本地多进程执行当前默认)
 3. [Docker Sandbox（本地容器隔离）](#3-docker-sandbox本地容器隔离)
-4. [Daytona Sandbox（云端沙箱）](#4-daytona-sandbox云端沙箱)
-5. [运行指南](#5-运行指南)
-6. [配置参考](#6-配置参考)
-7. [常见问题排查](#7-常见问题排查)
+4. [运行指南](#4-运行指南)
+5. [配置参考](#5-配置参考)
+6. [常见问题排查](#6-常见问题排查)
 
 ---
 
 ## 1. 架构总览
 
-### 1.1 三套执行环境全景图
+### 1.1 两套执行环境全景图
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        OpenManus 执行环境                            │
-├─────────────────┬─────────────────────┬──────────────────────────────┤
-│  本地多进程      │  Docker Sandbox      │  Daytona Sandbox             │
-│  (当前默认)      │  (本地容器, 未集成)    │  (云端沙箱)                   │
-├─────────────────┼─────────────────────┼──────────────────────────────┤
-│  入口:           │  入口:               │  入口:                        │
-│  main.py        │  (暂无独立入口)       │  sandbox_main.py             │
-│  run_flow.py    │                     │                              │
-├─────────────────┼─────────────────────┼──────────────────────────────┤
-│  隔离方式:       │  隔离方式:            │  隔离方式:                    │
-│  multiprocessing │  Docker 容器         │  Daytona 云端容器             │
-│  .Process       │  (CPU/内存/网络限制)  │  (CPU/内存/磁盘限制)          │
-├─────────────────┼─────────────────────┼──────────────────────────────┤
-│  文件系统:       │  文件系统:            │  文件系统:                    │
-│  本地文件系统     │  容器内隔离文件系统    │  云端隔离文件系统              │
-├─────────────────┼─────────────────────┼──────────────────────────────┤
-│  网络安全:        │  网络安全:            │  网络安全:                    │
-│  无网络隔离       │  可配置关闭网络        │  公网可达(预览端口映射)        │
-├─────────────────┼─────────────────────┼──────────────────────────────┤
-│  安全等级:        │  安全等级:            │  安全等级:                    │
-│  ★★☆☆☆ (低)     │  ★★★★☆ (高)          │  ★★★★★ (最高)                │
-├─────────────────┼─────────────────────┼──────────────────────────────┤
-│  适用场景:        │  适用场景:            │  适用场景:                    │
-│  开发调试、       │  本地安全执行、        │  生产环境、                   │
-│  轻量数据分析      │  不可信代码隔离       │  浏览器自动化、               │
-│                  │                     │  复杂可视化任务               │
-└─────────────────┴─────────────────────┴──────────────────────────────┘
+├───────────────────────────┬──────────────────────────────────────────┤
+│  本地多进程                │  Docker Sandbox                          │
+│  (当前默认)                │  (Web 层注入)                             │
+├───────────────────────────┼──────────────────────────────────────────┤
+│  入口:                     │  入口:                                    │
+│  main.py                  │  Web 会话（agent_runner set_sandbox）      │
+│  run_flow.py              │                                          │
+├───────────────────────────┼──────────────────────────────────────────┤
+│  隔离方式:                 │  隔离方式:                                │
+│  multiprocessing          │  Docker 容器                             │
+│  .Process                 │  (CPU/内存/网络限制)                      │
+├───────────────────────────┼──────────────────────────────────────────┤
+│  文件系统:                 │  文件系统:                                │
+│  本地文件系统               │  容器内隔离文件系统                        │
+├───────────────────────────┼──────────────────────────────────────────┤
+│  网络安全:                 │  网络安全:                                │
+│  无网络隔离                 │  可配置关闭网络                            │
+├───────────────────────────┼──────────────────────────────────────────┤
+│  安全等级:                 │  安全等级:                                │
+│  ★★☆☆☆ (低)               │  ★★★★☆ (高)                              │
+├───────────────────────────┼──────────────────────────────────────────┤
+│  适用场景:                 │  适用场景:                                │
+│  开发调试、                │  本地安全执行、                            │
+│  轻量数据分析              │  不可信代码隔离                            │
+└───────────────────────────┴──────────────────────────────────────────┘
 ```
 
 ### 1.2 执行环境对比表
 
-| 维度                 | 本地多进程      | Docker Sandbox     | Daytona Sandbox       |
-| -------------------- | --------------- | ------------------ | --------------------- |
-| **启用状态**   | ✅ 默认启用     | ❌ 未集成          | ✅ sandbox_main.py    |
-| **配置位置**   | 无需配置        | `[sandbox]` 段   | `[daytona]` 段      |
-| **额外依赖**   | 无              | Docker Desktop     | Daytona SDK + API Key |
-| **资源限制**   | 仅超时(30s)     | 内存/CPU/网络      | CPU/内存/磁盘         |
-| **文件持久化** | 本地直接读写    | 容器内/volume 挂载 | 云端存储              |
-| **浏览器支持** | Playwright 本地 | 不支持             | 内置 Chromium+VNC     |
-| **适合生产**   | 否              | 是                 | 是                    |
+| 维度                 | 本地多进程      | Docker Sandbox     |
+| -------------------- | --------------- | ------------------ |
+| **启用状态**   | ✅ 默认启用     | ✅ Web 层注入      |
+| **配置位置**   | 无需配置        | `[sandbox]` 段   |
+| **额外依赖**   | 无              | Docker Desktop     |
+| **资源限制**   | 仅超时(30s)     | 内存/CPU/网络      |
+| **文件持久化** | 本地直接读写    | 容器内/volume 挂载 |
+| **浏览器支持** | Playwright 本地 | 不支持             |
+| **适合生产**   | 否              | 是                 |
 
 ### 1.3 `run_flow.py` 完整调用链路
 
@@ -98,7 +96,7 @@ run_flow.py (入口)
                                                (子进程执行代码, 30s 超时)
 ```
 
-> **关键结论：`run_flow.py` 当前不使用任何沙箱容器。** 代码执行通过 `multiprocessing.Process` 在本地子进程中完成。Docker Sandbox 模块已完善但尚未接入。
+> **关键结论：`run_flow.py` 当前不使用任何沙箱容器。** 代码执行通过 `multiprocessing.Process` 在本地子进程中完成。Docker Sandbox 模块由 Web 层注入使用。
 
 ---
 
@@ -355,168 +353,13 @@ asyncio.run(test())
 
 ### 3.4 当前集成状态
 
-> ⚠️ **重要提示**：Docker Sandbox 模块代码完善，但**目前没有接入任何 Agent 或 Flow**。
->
-> - `Manus` 和 `DataAnalysis` agent 使用 `PythonExecute`（多进程），不使用 Docker Sandbox
-> - `run_flow.py` 和 `main.py` 都不会自动创建沙箱容器
-> - `BaseAgent` 中导入了 `SANDBOX_CLIENT`（`app/agent/base.py:9`），但未实际使用
->
-> 如需将 Docker Sandbox 接入 Agent，需要：
->
-> 1. 修改 `PythonExecute` 或创建新的沙箱执行工具
-> 2. 在工具中调用 `SANDBOX_CLIENT.run_command()` 替代 `multiprocessing.Process`
-> 3. 在 Agent 的 `cleanup()` 中调用 `SANDBOX_CLIENT.cleanup()`
+> **集成状态**：Docker Sandbox 已通过 Web 层接入——`agent_runner.py` 创建会话时可注入沙箱（`set_sandbox()`），DataAnalysis / QuickQuery / WechatPublish 的执行类工具改为在容器内执行。`main.py` / `run_flow.py` 的 CLI 路径默认仍走本地多进程。
 
 ---
 
-## 4. Daytona Sandbox（云端沙箱）
+## 4. 运行指南
 
-### 4.1 架构图
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Daytona Sandbox 架构                           │
-│                                                                  │
-│  ┌──────────────────────┐     HTTPS API                          │
-│  │  sandbox_main.py      │──────────▶┌─────────────────────────┐ │
-│  │                      │            │  Daytona Cloud           │ │
-│  │  SandboxManus Agent   │            │  (app.daytona.io)        │ │
-│  │                      │            │                         │ │
-│  │  工具集:              │            │  ┌───────────────────┐  │ │
-│  │  - SandboxBrowserTool│            │  │  Sandbox 容器       │  │ │
-│  │  - SandboxFilesTool  │            │  │                   │  │ │
-│  │  - SandboxShellTool  │            │  │  - Chromium 浏览器 │  │ │
-│  │  - SandboxVisionTool │            │  │  - VNC Server      │  │ │
-│  │  - MCP Tools          │            │  │  - Web Server     │  │ │
-│  └──────────────────────┘            │  │  - Python 环境    │  │ │
-│                                       │  └───────────────────┘  │
-│  用户可通过:                          └─────────────────────────┘ │
-│  - VNC 链接 观看浏览器操作                                         │
-│  - Website 链接 访问 Web 服务                                      │
-│  - Daytona Dashboard 管理沙箱                                     │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### 4.2 核心组件
-
-#### SandboxManus Agent（`app/agent/sandbox_agent.py`）
-
-继承自 `ToolCallAgent`，是专门为云端沙箱设计的 Agent。与普通 `Manus` 的区别：
-
-| 特性     | Manus                                           | SandboxManus                                                              |
-| -------- | ----------------------------------------------- | ------------------------------------------------------------------------- |
-| 工具集   | PythonExecute, BrowserUseTool, StrReplaceEditor | SandboxBrowserTool, SandboxFilesTool, SandboxShellTool, SandboxVisionTool |
-| 沙箱创建 | 无                                              | 启动时自动创建 Daytona 沙箱                                               |
-| 代码执行 | 本地多进程                                      | 远程沙箱内执行                                                            |
-| 浏览器   | Playwright 本地                                 | 云端 Chromium + VNC                                                       |
-| 清理     | MCP 断开                                        | MCP 断开 + 删除云端沙箱                                                   |
-
-#### 沙箱工具集
-
-| 工具                   | 文件                                    | 功能               |
-| ---------------------- | --------------------------------------- | ------------------ |
-| `SandboxBrowserTool` | `app/tool/sandbox/sb_browser_tool.py` | 云端浏览器自动化   |
-| `SandboxFilesTool`   | `app/tool/sandbox/sb_files_tool.py`   | 沙箱文件读写       |
-| `SandboxShellTool`   | `app/tool/sandbox/sb_shell_tool.py`   | 沙箱内 Shell 命令  |
-| `SandboxVisionTool`  | `app/tool/sandbox/sb_vision_tool.py`  | 浏览器截图视觉分析 |
-
-#### Daytona 客户端（`app/daytona/sandbox.py`）
-
-封装了 Daytona SDK 的核心操作：
-
-```python
-# 获取 Daytona 客户端（单例）
-from app.daytona.sandbox import get_daytona
-
-# 创建沙箱（含 Chromium + VNC + supervisor）
-from app.daytona.sandbox import create_sandbox
-sandbox = create_sandbox(password="your_vnc_password")
-
-# 删除沙箱
-from app.daytona.sandbox import delete_sandbox
-await delete_sandbox(sandbox_id)
-```
-
-创建沙箱时的资源配置：
-
-```python
-Resources(cpu=2, memory=4, disk=5)   # 2核 CPU, 4GB 内存, 5GB 磁盘
-auto_stop_interval=15                 # 15 分钟无操作自动停止
-auto_archive_interval=24*60           # 24 小时自动归档
-```
-
-### 4.3 部署步骤
-
-#### 前置条件
-
-```powershell
-# 1. 确认 conda 环境
-conda activate open_manus
-
-# 2. 安装 Daytona SDK
-pip install daytona==0.21.8 structlog==25.4.0
-```
-
-#### 获取 API Key
-
-1. 打开浏览器访问：https://app.daytona.io/dashboard/keys
-2. 注册/登录 Daytona 账号
-3. 点击 "Create API Key" 生成密钥
-4. 复制密钥备用
-
-#### 配置
-
-```powershell
-# 复制 Daytona 配置模板
-cp config/config.example-daytona.toml config/config.toml
-```
-
-编辑 `config/config.toml` 中的 `[daytona]` 段：
-
-```toml
-[daytona]
-daytona_api_key = "your-api-key-here"                             # 必填！从 Daytona 获取
-# daytona_server_url = "https://app.daytona.io/api"               # 默认 API 地址
-# daytona_target = "us"                                           # 区域: us(美国) 或 eu(欧洲)
-# sandbox_image_name = "whitezxj/sandbox:0.1.0"                   # 沙箱镜像(不要修改)
-# sandbox_entrypoint = "/usr/bin/supervisord -n -c /etc/supervisor/conf.d/supervisord.conf"
-# VNC_password = "123456"                                         # VNC 连接密码
-```
-
-> ⚠️ `sandbox_image_name` 使用预配置镜像，包含了 Chromium 浏览器和 VNC Server。除非你知道自己在做什么，否则不要修改。
-
-#### 运行
-
-```powershell
-python sandbox_main.py
-```
-
-运行后会提示输入任务，同时终端会打印两个链接：
-
-```
-Enter your prompt: 帮我分析 sales_data.csv 并生成可视化报告
-
-***VNC URL: https://6080-sandbox-abc123.h7890.daytona.work***
-***Website URL: https://8080-sandbox-abc123.h7890.daytona.work***
-***
-```
-
-| 链接                               | 用途                                        |
-| ---------------------------------- | ------------------------------------------- |
-| **VNC URL**（端口 6080）     | 实时观看 Agent 的浏览器操作                 |
-| **Website URL**（端口 8080） | 访问沙箱内的 Web 服务（如生成的 HTML 报告） |
-
-#### 完整示例
-
-```powershell
-python sandbox_main.py --prompt "帮我在 https://example.com 搜索最新 AI 新闻并保存摘要为 summary.md"
-```
-
----
-
-## 5. 运行指南
-
-### 5.1 三种运行模式
+### 4.1 两种运行模式
 
 #### 模式一：单智能体（`python main.py`）
 
@@ -574,15 +417,7 @@ use_data_analysis_agent = true   # 启用数据分析智能体
 | `Manus`        | `[MANUS]`         | 网页浏览、文件编辑、Python 执行 |
 | `DataAnalysis` | `[DATA_ANALYSIS]` | 数据处理、图表可视化、数据报告  |
 
-#### 模式三：云端沙箱（`python sandbox_main.py`）
-
-```powershell
-python sandbox_main.py
-# 或带参数
-python sandbox_main.py --prompt "你的任务"
-```
-
-### 5.2 模式选择决策树
+### 4.2 模式选择决策树
 
 ```
 需要执行什么任务？
@@ -593,14 +428,11 @@ python sandbox_main.py --prompt "你的任务"
 ├─ 需要多个专业 Agent 协作
 │   └─ python run_flow.py （多智能体编排）
 │
-├─ 需要浏览器自动化 + 可视化监控
-│   └─ python sandbox_main.py （Daytona 云端沙箱）
-│
 └─ 需要容器级安全隔离
     └─ 自行编写代码调用 SANDBOX_CLIENT （Docker Sandbox 手动集成）
 ```
 
-### 5.3 运行前置条件汇总
+### 4.3 运行前置条件汇总
 
 ```powershell
 # 1. 确认 Python 环境
@@ -618,7 +450,7 @@ ls config\config.toml
 # 检查 config.toml 中 api_key 字段不是 "YOUR_API_KEY"
 ```
 
-### 5.4 工作空间
+### 4.4 工作空间
 
 所有模式共享同一个工作空间目录：
 
@@ -635,9 +467,9 @@ print(config.workspace_root)  # C:\Code\OpenManus\workspace
 
 ---
 
-## 6. 配置参考
+## 5. 配置参考
 
-### 6.1 完整配置项速查
+### 5.1 完整配置项速查
 
 #### `[llm]` — LLM 配置（所有模式必需）
 
@@ -661,18 +493,6 @@ memory_limit = "512m"                  # 内存限制 (512m, 1g, 2g...)
 cpu_limit = 1.0                        # CPU 核心数
 timeout = 300                          # 命令超时 (秒)
 network_enabled = false                # 网络访问开关
-```
-
-#### `[daytona]` — Daytona 云沙箱配置
-
-```toml
-[daytona]
-daytona_api_key = ""                                # 必填
-daytona_server_url = "https://app.daytona.io/api"   # API 地址
-daytona_target = "us"                               # 区域 (us/eu)
-sandbox_image_name = "whitezxj/sandbox:0.1.0"       # 沙箱镜像
-sandbox_entrypoint = "/usr/bin/supervisord -n -c /etc/supervisor/conf.d/supervisord.conf"
-VNC_password = "123456"                             # VNC 密码
 ```
 
 #### `[runflow]` — 多智能体编排配置
@@ -699,7 +519,7 @@ engine = "Google"                      # 主引擎 (Google/Baidu/DuckDuckGo/Bing
 fallback_engines = ["DuckDuckGo", "Baidu", "Bing"]
 ```
 
-### 6.2 推荐配置组合
+### 5.2 推荐配置组合
 
 #### 开发环境（最低配置）
 
@@ -733,27 +553,11 @@ use_sandbox = true
 network_enabled = true   # 数据分析可能需要联网下载数据
 ```
 
-#### 云端浏览器自动化环境
-
-```toml
-[llm]
-model = "claude-sonnet-4-20250514"
-base_url = "https://api.anthropic.com/v1/"
-api_key = "sk-ant-..."
-max_tokens = 8192
-temperature = 0.0
-
-[daytona]
-daytona_api_key = "dtn_..."
-daytona_target = "us"
-VNC_password = "your_secure_password"
-```
-
 ---
 
-## 7. 常见问题排查
+## 6. 常见问题排查
 
-### 7.1 通用问题
+### 6.1 通用问题
 
 #### Q: 提示 "Empty prompt provided"
 
@@ -798,7 +602,7 @@ curl -I https://api.anthropic.com
 - 多进程模式：修改 `PythonExecute.execute(timeout=...)` 默认值
 - Docker Sandbox：修改 `config.toml` 中 `[sandbox].timeout`
 
-### 7.2 LLM / API 问题
+### 6.2 LLM / API 问题
 
 #### Q: "Error: Invalid API key"
 
@@ -822,7 +626,7 @@ curl -I https://api.anthropic.com
 2. 增大 `max_tokens` 配置
 3. 使用支持更大上下文的模型
 
-### 7.3 Docker Sandbox 问题
+### 6.3 Docker Sandbox 问题
 
 #### Q: "docker.errors.DockerException: Error while fetching server API version"
 
@@ -870,65 +674,7 @@ docker ps --filter "name=sandbox_"
 docker rm -f sandbox_<id>
 ```
 
-### 7.4 Daytona Sandbox 问题
-
-#### Q: "No Daytona API key found"
-
-**原因**：`config.toml` 中未配置 `daytona_api_key`。
-
-**解决**：
-
-1. 访问 https://app.daytona.io/dashboard/keys
-2. 创建 API Key
-3. 填入 `config.toml`:
-
-```toml
-[daytona]
-daytona_api_key = "dtn_your_key_here"
-```
-
-#### Q: "Error creating sandbox" / 沙箱创建失败
-
-**原因**：
-
-1. API Key 无效或过期
-2. 账户配额不足
-3. 网络问题
-
-**排查**：
-
-```powershell
-# 检查网络连通
-curl https://app.daytona.io/api
-
-# 查看详细错误日志
-# 日志位置: 终端输出 + logger 模块
-```
-
-#### Q: VNC 链接打不开
-
-**现象**：点击终端打印的 VNC URL，浏览器显示无法连接。
-
-**原因**：
-
-1. 沙箱仍在初始化（supervisord 需要约 25 秒启动）
-2. 沙箱已被自动停止
-
-**解决**：
-
-- 等待 1-2 分钟后重试
-- 在 [Daytona Dashboard](https://app.daytona.io/dashboard/sandboxes) 检查沙箱状态
-
-#### Q: 沙箱费用问题
-
-**注意**：Daytona 是按使用时间计费的云服务。
-
-- `auto_stop_interval = 15`：15 分钟无活动自动停止
-- `auto_archive_interval = 24*60`：24 小时自动归档
-- Agent 执行完毕后会调用 `cleanup()` → `delete_sandbox()` 销毁沙箱
-- 如果程序异常退出（Ctrl+C 除外），沙箱可能继续运行，需手动在 Dashboard 清理
-
-### 7.5 Python 环境问题
+### 6.4 Python 环境问题
 
 #### Q: ImportError: No module named 'xxx'
 
@@ -970,7 +716,6 @@ chcp 65001
 OpenManus/
 ├── main.py                    # 单智能体入口 (Manus)
 ├── run_flow.py                # 多智能体编排入口 (PlanningFlow)
-├── sandbox_main.py            # Daytona 云沙箱入口 (SandboxManus)
 ├── config/
 │   ├── config.toml            # ⚠️ 主配置文件（需手动创建）
 │   └── config.example.toml    # 配置模板
@@ -980,25 +725,16 @@ OpenManus/
 │   │   ├── react.py           # ReActAgent (think+act 循环)
 │   │   ├── toolcall.py        # ToolCallAgent (LLM 工具调用)
 │   │   ├── manus.py           # Manus (通用智能体, 本地多进程)
-│   │   ├── data_analysis.py   # DataAnalysis (数据分析智能体)
-│   │   └── sandbox_agent.py   # SandboxManus (Daytona 云沙箱)
-│   ├── sandbox/               # ⚠️ Docker Sandbox 模块 (未集成)
+│   │   └── data_analysis.py   # DataAnalysis (数据分析智能体)
+│   ├── sandbox/               # Docker Sandbox 模块
 │   │   ├── client.py          # LocalSandboxClient + SANDBOX_CLIENT 单例
 │   │   └── core/
 │   │       ├── sandbox.py     # DockerSandbox 容器封装
 │   │       ├── terminal.py    # AsyncDockerizedTerminal 终端接口
 │   │       ├── manager.py     # SandboxManager 生命周期管理
 │   │       └── exceptions.py  # 异常定义
-│   ├── daytona/               # Daytona 云沙箱模块
-│   │   ├── sandbox.py         # Daytona SDK 封装
-│   │   └── tool_base.py       # SandboxToolsBase 基类
 │   ├── tool/
 │   │   ├── python_execute.py  # PythonExecute (多进程执行)
-│   │   └── sandbox/           # Daytona 沙箱工具集
-│   │       ├── sb_browser_tool.py
-│   │       ├── sb_files_tool.py
-│   │       ├── sb_shell_tool.py
-│   │       └── sb_vision_tool.py
 │   ├── flow/
 │   │   ├── base.py            # BaseFlow 基类
 │   │   ├── planning.py        # PlanningFlow (多智能体编排)
@@ -1019,5 +755,3 @@ OpenManus/
 | **ReAct**         | Reasoning + Acting 循环模式（think → act → observe） |
 | **MCP**           | Model Context Protocol，用于连接远程工具服务器         |
 | **sandbox_ 前缀** | Docker 容器命名规范，如`sandbox_a1b2c3d4`            |
-| **supervisord**   | Daytona 沙箱内的进程管理器，管理 Chromium 和 VNC       |
-| **VNC**           | 远程桌面协议，用于观看沙箱内浏览器操作                 |
