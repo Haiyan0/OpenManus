@@ -89,6 +89,27 @@ def test_save_deliverables_sanitizes_topic_and_writes_three_files(tmp_path):
     }
 
 
+def test_save_deliverables_rejects_date_path_traversal(tmp_path):
+    service = GeoContentService(workspace_dir=tmp_path, knowledge_dir=tmp_path)
+    outside_files = list(tmp_path.parent.glob("malicious_escape_date_*.md"))
+
+    try:
+        result = service.save_deliverables(
+            topic="测试主题",
+            article="# 正文",
+            publish_config="# 发布配置",
+            scorecard="# 评分卡",
+            date_str="../malicious_escape_date",
+        )
+
+        assert result["ok"] is False
+        assert list(tmp_path.parent.glob("malicious_escape_date_*.md")) == outside_files
+    finally:
+        for path in tmp_path.parent.glob("malicious_escape_date_*.md"):
+            if path not in outside_files:
+                path.unlink()
+
+
 def test_quality_check_flags_unsourced_precise_claims(tmp_path):
     service = GeoContentService(workspace_dir=tmp_path, knowledge_dir=tmp_path)
 

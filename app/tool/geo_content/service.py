@@ -122,12 +122,16 @@ class GeoContentService:
     ) -> dict[str, Any]:
         self.workspace_dir.mkdir(parents=True, exist_ok=True)
         safe_topic = _sanitize_topic(topic)
-        day = date_str or date.today().isoformat()
+        day = _validate_date(date_str)
+        if day is None:
+            return {"ok": False, "error": "date 必须是有效的 YYYY-MM-DD 日期"}
         files = [
             (self.workspace_dir / f"{day}_{safe_topic}_正文.md", article),
             (self.workspace_dir / f"{day}_{safe_topic}_发布配置单.md", publish_config),
             (self.workspace_dir / f"{day}_{safe_topic}_评分卡.md", scorecard),
         ]
+        if any(not _is_inside_workspace(path, self.workspace_dir) for path, _ in files):
+            return {"ok": False, "error": "GEO 交付文件路径必须位于工作目录内"}
         for path, content in files:
             path.write_text(content, encoding="utf-8")
         return {"ok": True, "files": [str(path) for path, _ in files]}
@@ -137,3 +141,22 @@ def _sanitize_topic(topic: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*\s]+', "_", topic.strip())
     cleaned = re.sub(r"_+", "_", cleaned).strip("_")
     return cleaned or "geo_content"
+
+
+def _validate_date(date_str: str | None) -> str | None:
+    if date_str is None:
+        return date.today().isoformat()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_str):
+        return None
+    try:
+        return date.fromisoformat(date_str).isoformat()
+    except ValueError:
+        return None
+
+
+def _is_inside_workspace(path: Path, workspace_dir: Path) -> bool:
+    try:
+        path.resolve().relative_to(workspace_dir.resolve())
+    except ValueError:
+        return False
+    return True
