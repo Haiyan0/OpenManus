@@ -1,0 +1,139 @@
+"""GEO 内容生产工具的确定性服务层。"""
+
+import re
+from datetime import date
+from pathlib import Path
+from typing import Any
+
+
+DEFAULT_KNOWLEDGE_DIR = (
+    Path(__file__).resolve().parents[2] / "knowledge" / "geo_content"
+)
+
+KNOWLEDGE_FILES = {
+    "knowledge_geo": "knowledge-geo.md",
+    "benchmark_data": "benchmark-data.md",
+    "data_collection_fields": "data-collection-fields.md",
+    "dimension_channel_matrix": "dimension-channel-matrix.md",
+    "section_templates": "section-templates.md",
+    "style_analysis": "style-analysis.md",
+    "quality_checklist": "quality-checklist.md",
+    "scoring_rubric": "scoring-rubric.md",
+    "deliverable_spec": "deliverable-spec.md",
+}
+
+REQUIRED_MATERIAL_FIELDS = {
+    "business": "业务/产品/服务说明",
+    "authority": "权威来源、资质、真实数据或可验证背书",
+    "experience": "真实经验、案例、流程或使用细节",
+    "intent_words": "目标用户意图词或搜索问题",
+    "sources": "可核验来源材料",
+    "faq": "用户常见问题与回答",
+}
+
+
+class GeoContentService:
+    """处理 GEO 状态、知识资产和交付文件。"""
+
+    def __init__(
+        self,
+        workspace_dir: str | Path,
+        knowledge_dir: str | Path | None = None,
+    ) -> None:
+        self.workspace_dir = Path(workspace_dir).resolve()
+        self.knowledge_dir = (
+            Path(knowledge_dir).resolve() if knowledge_dir else DEFAULT_KNOWLEDGE_DIR
+        )
+
+    @property
+    def state_path(self) -> Path:
+        return self.workspace_dir / "_working-data.md"
+
+    def load_knowledge(self, topic: str) -> dict[str, Any]:
+        if topic not in KNOWLEDGE_FILES:
+            return {"ok": False, "error": f"不支持的 GEO 知识主题: {topic}"}
+        path = self.knowledge_dir / KNOWLEDGE_FILES[topic]
+        if not path.exists():
+            return {"ok": False, "error": f"GEO 知识资产缺失: {path.name}"}
+        return {
+            "ok": True,
+            "topic": topic,
+            "path": str(path),
+            "content": path.read_text(encoding="utf-8"),
+        }
+
+    def load_state(self) -> dict[str, Any]:
+        if not self.state_path.exists():
+            return {
+                "ok": True,
+                "exists": False,
+                "path": str(self.state_path),
+                "content": "",
+            }
+        return {
+            "ok": True,
+            "exists": True,
+            "path": str(self.state_path),
+            "content": self.state_path.read_text(encoding="utf-8"),
+        }
+
+    def save_state(self, content: str) -> dict[str, Any]:
+        self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        self.state_path.write_text(content, encoding="utf-8")
+        return {"ok": True, "path": str(self.state_path)}
+
+    def analyze_inputs(self, materials: dict[str, str]) -> dict[str, Any]:
+        missing = [
+            field
+            for field in REQUIRED_MATERIAL_FIELDS
+            if not str(materials.get(field, "")).strip()
+        ]
+        return {
+            "ok": True,
+            "complete": not missing,
+            "missing_fields": missing,
+            "missing_labels": [REQUIRED_MATERIAL_FIELDS[field] for field in missing],
+        }
+
+    def quality_check(self, article: str, source_notes: str = "") -> dict[str, Any]:
+        risk_codes: list[str] = []
+        has_sources = bool(source_notes.strip())
+        if not has_sources and re.search(r"\d+(?:\.\d+)?\s*(?:%|天|小时|倍|万|亿)", article):
+            risk_codes.append("unsourced_precise_number")
+        if not has_sources and re.search(
+            r"[\u4e00-\u9fa5]{1,4}(?:总|经理|博士|教授|专家)", article
+        ):
+            risk_codes.append("unsourced_named_case")
+        if not has_sources and re.search(r"(?:第一|领先|权威认证|官方认证|获奖|专利)", article):
+            risk_codes.append("unsourced_authority_claim")
+        return {
+            "ok": True,
+            "passed": not risk_codes,
+            "risk_codes": risk_codes,
+        }
+
+    def save_deliverables(
+        self,
+        topic: str,
+        article: str,
+        publish_config: str,
+        scorecard: str,
+        date_str: str | None = None,
+    ) -> dict[str, Any]:
+        self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        safe_topic = _sanitize_topic(topic)
+        day = date_str or date.today().isoformat()
+        files = [
+            (self.workspace_dir / f"{day}_{safe_topic}_正文.md", article),
+            (self.workspace_dir / f"{day}_{safe_topic}_发布配置单.md", publish_config),
+            (self.workspace_dir / f"{day}_{safe_topic}_评分卡.md", scorecard),
+        ]
+        for path, content in files:
+            path.write_text(content, encoding="utf-8")
+        return {"ok": True, "files": [str(path) for path, _ in files]}
+
+
+def _sanitize_topic(topic: str) -> str:
+    cleaned = re.sub(r'[<>:"/\\|?*\s]+', "_", topic.strip())
+    cleaned = re.sub(r"_+", "_", cleaned).strip("_")
+    return cleaned or "geo_content"
