@@ -84,7 +84,7 @@
           <input
             ref="fileInput"
             type="file"
-            accept=".csv,.xlsx,.xls,.json,.txt,.tsv"
+            accept=".csv,.xlsx,.xls,.json,.txt,.md,.html,.tsv"
             class="hidden"
             @change="onFileSelected"
             :disabled="running"
@@ -105,7 +105,7 @@
         >发送 ▶</button>
       </div>
       <p class="text-xs text-gray-600 text-center mt-1.5 max-w-3xl mx-auto">
-        支持上传 CSV、Excel、JSON、TXT 文件。文件仅在当前会话有效，关闭页面后自动清除。
+        支持上传 CSV、Excel、JSON、TXT、MD、HTML 文件。文件仅在当前会话有效，关闭页面后自动清除。
       </p>
     </footer>
   </div>
