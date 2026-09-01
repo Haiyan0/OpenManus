@@ -6,7 +6,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatCreate(BaseModel):
-    agent_type: str = Field(..., description="general | data_analysis | quick_query")
+    agent_type: str = Field(
+        ...,
+        description="general | data_analysis | quick_query | wechat_publish | geo_content",
+    )
     title: str | None = Field(None, max_length=200)
 
 
@@ -43,7 +46,8 @@ class ChatDetail(ChatOut):
 
 class WorkspaceFile(BaseModel):
     """workspace 中的生成文件信息。"""
-    name: str                         # 文件名
-    path: str                         # 相对于 workspace 根目录的路径
-    size: int                         # 字节数
-    is_dir: bool = False              # 是否为目录
+
+    name: str  # 文件名
+    path: str  # 相对于 workspace 根目录的路径
+    size: int  # 字节数
+    is_dir: bool = False  # 是否为目录

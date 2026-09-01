@@ -16,7 +16,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.web.database import Base
 
 
-AGENT_TYPES = {"general", "data_analysis", "quick_query", "wechat_publish"}
+AGENT_TYPES = {
+    "general",
+    "data_analysis",
+    "quick_query",
+    "wechat_publish",
+    "geo_content",
+}
 CHAT_STATUS = {"active", "archived"}
 
 
