@@ -15,6 +15,90 @@ from app.tool import CreateChatCompletion, Terminate, ToolCollection
 TOOL_CALL_REQUIRED = "Tool calls required but none provided"
 
 
+def _parse_tool_arguments(raw_arguments: str | None) -> dict[str, Any]:
+    """解析工具参数；必要时修复对象内误写的裸字符串条目。"""
+    raw = raw_arguments or "{}"
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as original_error:
+        repaired = _repair_unkeyed_object_strings(raw)
+        if repaired != raw:
+            try:
+                logger.warning("工具参数不是严格 JSON，已尝试修复对象内裸字符串条目后继续执行。")
+                return json.loads(repaired)
+            except json.JSONDecodeError:
+                pass
+        raise original_error
+
+
+def _repair_unkeyed_object_strings(raw: str) -> str:
+    """把 {"事实", "键": "值"} 修复为 {"_item_1": "事实", "键": "值"}。"""
+    output: list[str] = []
+    stack: list[str] = []
+    item_counts: list[int] = []
+    previous_significant = ""
+    index = 0
+
+    while index < len(raw):
+        char = raw[index]
+        if char == '"':
+            token, index = _read_json_string_token(raw, index)
+            next_significant = _peek_next_significant(raw, index)
+            if (
+                stack
+                and stack[-1] == "object"
+                and previous_significant in {"{", ","}
+                and next_significant in {",", "}"}
+            ):
+                item_counts[-1] += 1
+                output.append(f'"_item_{item_counts[-1]}": ')
+            output.append(token)
+            previous_significant = '"'
+            continue
+
+        output.append(char)
+        if char == "{":
+            stack.append("object")
+            item_counts.append(0)
+            previous_significant = char
+        elif char == "[":
+            stack.append("array")
+            item_counts.append(0)
+            previous_significant = char
+        elif char in {"}", "]"}:
+            if stack:
+                stack.pop()
+                item_counts.pop()
+            previous_significant = char
+        elif not char.isspace():
+            previous_significant = char
+        index += 1
+
+    return "".join(output)
+
+
+def _read_json_string_token(raw: str, start: int) -> tuple[str, int]:
+    escaped = False
+    index = start + 1
+    while index < len(raw):
+        char = raw[index]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == '"':
+            return raw[start : index + 1], index + 1
+        index += 1
+    return raw[start:], len(raw)
+
+
+def _peek_next_significant(raw: str, start: int) -> str:
+    index = start
+    while index < len(raw) and raw[index].isspace():
+        index += 1
+    return raw[index] if index < len(raw) else ""
+
+
 class ToolCallAgent(ReActAgent):
     """Base agent class for handling tool/function calls with enhanced abstraction"""
 
@@ -193,7 +277,7 @@ class ToolCallAgent(ReActAgent):
 
         try:
             # Parse arguments
-            args = json.loads(command.function.arguments or "{}")
+            args = _parse_tool_arguments(command.function.arguments)
 
             # Execute the tool
             logger.info(f"🔧 Activating tool: '{name}'...")

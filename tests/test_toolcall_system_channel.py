@@ -42,6 +42,28 @@ class _DataTool(BaseTool):
         return ToolResult(output="摘要：1 行", system="完整数据：A=1,B=2,C=3")
 
 
+class _StructuredOutputTool(BaseTool):
+    """返回结构化 output 的工具。"""
+
+    name: str = "structured_tool"
+    description: str = "返回 dict output 的工具"
+    parameters: dict = {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, **kwargs) -> ToolResult:
+        return ToolResult(output={"ok": True, "items": ["a", "b"]})
+
+
+class _CaptureArgsTool(BaseTool):
+    """回显解析后的工具参数。"""
+
+    name: str = "capture_args"
+    description: str = "回显参数"
+    parameters: dict = {"type": "object", "properties": {}, "required": []}
+
+    async def execute(self, **kwargs) -> ToolResult:
+        return ToolResult(output=kwargs)
+
+
 def _make_agent() -> tuple[ToolCallAgent, _RecordingLLM]:
     rec = _RecordingLLM()
     agent = ToolCallAgent(available_tools=ToolCollection(_DataTool()))
@@ -78,3 +100,39 @@ async def test_execute_tool_collects_system_from_tool_result():
     await agent.execute_tool(command)
 
     assert agent.pending_systems == ["完整数据：A=1,B=2,C=3"]
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_renders_structured_tool_result():
+    """工具返回 dict/list 等结构化 output 时，execute_tool 也应能渲染 observation。"""
+    agent = ToolCallAgent(available_tools=ToolCollection(_StructuredOutputTool()))
+
+    command = ToolCall(
+        id="call_structured",
+        function=Function(name="structured_tool", arguments="{}"),
+    )
+    observation = await agent.execute_tool(command)
+
+    assert observation.startswith("Observed output of cmd `structured_tool` executed:")
+    assert '"ok": true' in observation
+    assert '"items": [' in observation
+
+
+@pytest.mark.asyncio
+async def test_execute_tool_repairs_unkeyed_strings_in_object_arguments():
+    """对象内误写裸字符串条目时，应修复为带自动键的合法 JSON 再执行工具。"""
+    agent = ToolCallAgent(available_tools=ToolCollection(_CaptureArgsTool()))
+    invalid_arguments = (
+        '{"action": "analyze_inputs", '
+        '"materials": {"C真实经验": {"平台用户20万", "缺口": "个人使用体验"}}}'
+    )
+
+    command = ToolCall(
+        id="call_repair",
+        function=Function(name="capture_args", arguments=invalid_arguments),
+    )
+    observation = await agent.execute_tool(command)
+
+    assert not observation.startswith("Error:")
+    assert "平台用户20万" in observation
+    assert '"缺口": "个人使用体验"' in observation
