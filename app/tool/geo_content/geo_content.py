@@ -1,7 +1,7 @@
 """GEO 内容生产 Agent 专用工具。"""
 
 from app.tool.base import BaseTool, ToolResult
-from app.tool.geo_content.service import GeoContentService
+from app.tool.geo_content.service import KNOWLEDGE_FILES, GeoContentService
 
 
 class GeoContentTool(BaseTool):
@@ -14,6 +14,7 @@ class GeoContentTool(BaseTool):
         "properties": {
             "action": {
                 "type": "string",
+                "description": "要执行的 GEO SOP 动作",
                 "enum": [
                     "load_knowledge",
                     "load_state",
@@ -23,7 +24,15 @@ class GeoContentTool(BaseTool):
                     "save_deliverables",
                 ],
             },
-            "topic": {"type": "string"},
+            "knowledge_topic": {
+                "type": "string",
+                "enum": list(KNOWLEDGE_FILES),
+                "description": "仅在 load_knowledge 时使用的仓库知识主题",
+            },
+            "topic": {
+                "type": "string",
+                "description": "交付文件的内容主题；不用于选择知识资产",
+            },
             "content": {"type": "string"},
             "materials": {"type": "object"},
             "article": {"type": "string"},
@@ -35,15 +44,17 @@ class GeoContentTool(BaseTool):
         "required": ["action"],
     }
     workspace_dir: str = "/workspace"
+    host_workspace_dir: str = ""
 
     async def execute(self, action: str, **kwargs) -> ToolResult:
-        service = GeoContentService(self.workspace_dir)
+        service = GeoContentService(self.host_workspace_dir or self.workspace_dir)
         if action == "load_state":
             return ToolResult(output=service.load_state())
         if action == "save_state":
             return ToolResult(output=service.save_state(kwargs.get("content", "")))
         if action == "load_knowledge":
-            return ToolResult(output=service.load_knowledge(kwargs.get("topic", "")))
+            knowledge_topic = kwargs.get("knowledge_topic") or kwargs.get("topic", "")
+            return ToolResult(output=service.load_knowledge(knowledge_topic))
         if action == "analyze_inputs":
             return ToolResult(
                 output=service.analyze_inputs(kwargs.get("materials") or {})

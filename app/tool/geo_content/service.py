@@ -97,7 +97,9 @@ class GeoContentService:
 
     def quality_check(self, article: str, source_notes: str = "") -> dict[str, Any]:
         risk_codes: list[str] = []
-        has_sources = bool(source_notes.strip())
+        if not article.strip():
+            risk_codes.append("empty_article")
+        has_sources = _has_verifiable_source_notes(source_notes)
         if not has_sources and re.search(r"\d+(?:\.\d+)?\s*(?:%|天|小时|倍|万|亿)", article):
             risk_codes.append("unsourced_precise_number")
         if not has_sources and re.search(
@@ -120,7 +122,20 @@ class GeoContentService:
         scorecard: str,
         date_str: str | None = None,
     ) -> dict[str, Any]:
-        self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        contents = {
+            "article": article,
+            "publish_config": publish_config,
+            "scorecard": scorecard,
+        }
+        missing_fields = [
+            name for name, content in contents.items() if not content.strip()
+        ]
+        if missing_fields:
+            return {
+                "ok": False,
+                "error": "正文、发布配置单和评分卡均不能为空",
+                "missing_fields": missing_fields,
+            }
         safe_topic = _sanitize_topic(topic)
         day = _validate_date(date_str)
         if day is None:
@@ -132,6 +147,7 @@ class GeoContentService:
         ]
         if any(not _is_inside_workspace(path, self.workspace_dir) for path, _ in files):
             return {"ok": False, "error": "GEO 交付文件路径必须位于工作目录内"}
+        self.workspace_dir.mkdir(parents=True, exist_ok=True)
         for path, content in files:
             path.write_text(content, encoding="utf-8")
         return {"ok": True, "files": [str(path) for path, _ in files]}
@@ -141,6 +157,20 @@ def _sanitize_topic(topic: str) -> str:
     cleaned = re.sub(r'[<>:"/\\|?*\s]+', "_", topic.strip())
     cleaned = re.sub(r"_+", "_", cleaned).strip("_")
     return cleaned or "geo_content"
+
+
+def _has_verifiable_source_notes(source_notes: str) -> bool:
+    notes = source_notes.strip()
+    if not notes:
+        return False
+    source_patterns = (
+        r"https?://\S+",
+        r"\[[^\]\r\n]+\]\([^)]+\)",
+        r"(?:^|\s)(?:[A-Za-z]:[\\/]|\.{0,2}[\\/])?"
+        r"[^\s]+\.(?:md|txt|html?|pdf|docx?|csv|xlsx?)(?:$|\s)",
+        r"(?:\[\d+\]|【(?:来源|引用|参考)\d*】|" r"(?:来源|引用|参考文献|citation)\s*[:：])",
+    )
+    return any(re.search(pattern, notes, re.IGNORECASE) for pattern in source_patterns)
 
 
 def _validate_date(date_str: str | None) -> str | None:
