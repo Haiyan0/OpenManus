@@ -1,2 +1,0 @@
-tablestore
-python-dotenv
